@@ -56,3 +56,25 @@
 
 ;; References — plain identifiers
 (identifier) @ref
+
+;; Function return types
+(function_declaration
+  name: (identifier) @def.function
+  result: (type_identifier) @def.function.return)
+
+;; Method return types
+(method_declaration
+  name: (field_identifier) @def.method
+  result: (type_identifier) @def.function.return)
+
+;; Method receiver
+(method_declaration
+  receiver: (parameter_list
+    (parameter_declaration
+      type: (_) @def.method.receiver))
+  name: (field_identifier) @def.method)
+
+;; Struct field declarations
+(field_declaration
+  name: (field_identifier) @def.field
+  type: (_) @def.field.type)
