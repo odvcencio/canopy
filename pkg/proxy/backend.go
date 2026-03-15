@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +21,12 @@ type Backend struct {
 	Args         []string
 	Capabilities json.RawMessage
 
-	stdin  io.WriteCloser
-	stdout io.Reader
-	ready  chan struct{}
-	mu     sync.Mutex
-	nextID atomic.Int64
+	stdin   io.WriteCloser
+	stdout  io.Reader
+	ready   chan struct{}
+	mu      sync.Mutex
+	nextID  atomic.Int64
+	process *exec.Cmd
 }
 
 type lspMessage struct {
