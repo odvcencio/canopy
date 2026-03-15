@@ -331,6 +331,46 @@ func TestDefinitionTypeFields(t *testing.T) {
 	}
 }
 
+func TestSetMetaInitializesMap(t *testing.T) {
+	def := Definition{Name: "foo"}
+	SetMeta(&def, "vcs.author", "alice")
+	v, ok := GetMeta[string](&def, "vcs.author")
+	if !ok || v != "alice" {
+		t.Errorf("GetMeta = (%q, %v), want (alice, true)", v, ok)
+	}
+}
+
+func TestGetMetaMissingKey(t *testing.T) {
+	def := Definition{Name: "foo"}
+	v, ok := GetMeta[string](&def, "nonexistent")
+	if ok || v != "" {
+		t.Errorf("GetMeta = (%q, %v), want ('', false)", v, ok)
+	}
+}
+
+func TestGetMetaWrongType(t *testing.T) {
+	def := Definition{Name: "foo"}
+	SetMeta(&def, "count", 42)
+	v, ok := GetMeta[string](&def, "count")
+	if ok || v != "" {
+		t.Errorf("GetMeta[string] on int = (%q, %v), want ('', false)", v, ok)
+	}
+	n, ok := GetMeta[int](&def, "count")
+	if !ok || n != 42 {
+		t.Errorf("GetMeta[int] = (%d, %v), want (42, true)", n, ok)
+	}
+}
+
+func TestSetMetaOverwrites(t *testing.T) {
+	def := Definition{Name: "foo"}
+	SetMeta(&def, "key", "v1")
+	SetMeta(&def, "key", "v2")
+	v, _ := GetMeta[string](&def, "key")
+	if v != "v2" {
+		t.Errorf("GetMeta = %q, want v2", v)
+	}
+}
+
 func TestDefKindConstants(t *testing.T) {
 	defKinds := []string{
 		DefFunction,

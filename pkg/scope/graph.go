@@ -132,3 +132,27 @@ func (g *Graph) AddPackageScope(importPath string, s *Scope) {
 func (g *Graph) PackageScope(importPath string) *Scope {
 	return g.Packages[importPath]
 }
+
+// GetMeta retrieves a typed value from definition metadata.
+// Returns zero value and false if the key is missing or wrong type.
+func GetMeta[T any](d *Definition, key string) (T, bool) {
+	if d.Metadata == nil {
+		var zero T
+		return zero, false
+	}
+	v, ok := d.Metadata[key]
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	t, ok := v.(T)
+	return t, ok
+}
+
+// SetMeta writes a value to definition metadata, initializing the map if needed.
+func SetMeta(d *Definition, key string, value any) {
+	if d.Metadata == nil {
+		d.Metadata = make(map[string]any)
+	}
+	d.Metadata[key] = value
+}
