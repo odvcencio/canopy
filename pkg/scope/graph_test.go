@@ -308,6 +308,29 @@ func TestScopeKindConstants(t *testing.T) {
 	}
 }
 
+func TestDefinitionTypeFields(t *testing.T) {
+	def := Definition{
+		Name:        "ProcessOrder",
+		Kind:        DefFunction,
+		ReturnType:  "error",
+		Receiver:    "*OrderService",
+		BaseClasses: []string{"BaseHandler"},
+		TypeParams:  []string{"T", "K"},
+	}
+	if def.ReturnType != "error" {
+		t.Errorf("ReturnType = %q, want %q", def.ReturnType, "error")
+	}
+	if def.Receiver != "*OrderService" {
+		t.Errorf("Receiver = %q, want %q", def.Receiver, "*OrderService")
+	}
+	if len(def.BaseClasses) != 1 || def.BaseClasses[0] != "BaseHandler" {
+		t.Errorf("BaseClasses = %v, want [BaseHandler]", def.BaseClasses)
+	}
+	if len(def.TypeParams) != 2 {
+		t.Errorf("TypeParams = %v, want [T K]", def.TypeParams)
+	}
+}
+
 func TestDefKindConstants(t *testing.T) {
 	defKinds := []string{
 		DefFunction,

@@ -41,11 +41,20 @@ type Location struct {
 // Definition is a named symbol introduced into a scope.
 type Definition struct {
 	Name       string
-	Kind       string      // one of the Def* constants
-	TypeAnnot  string      // explicit type annotation if present
-	ImportPath string      // for import definitions
+	Kind       string         // one of the Def* constants
+	TypeAnnot  string         // explicit type annotation if present
+	ImportPath string         // for import definitions
 	Loc        Location
-	Scope      *Scope      // child scope this definition creates (e.g. function body)
+	Scope      *Scope         // child scope this definition creates (e.g. function body)
+
+	// Type intelligence
+	ReturnType  string        // function/method return type
+	BaseClasses []string      // inheritance chain
+	Receiver    string        // method receiver type
+	TypeParams  []string      // generics: T, K, V
+
+	// Feed metadata (any feed can write, LSP handlers read)
+	Metadata    map[string]any
 }
 
 // Ref is a use of a name that needs resolution.
