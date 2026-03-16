@@ -83,7 +83,7 @@ func newIndexCmd() *cobra.Command {
 
 			buildOnce := func(base *model.Index) (*model.Index, index.BuildStats, error) {
 				if incremental {
-					return builder.BuildPathIncremental(target, base)
+					return builder.BuildPathIncremental(context.Background(), target, base)
 				}
 				idx, err := builder.BuildPath(target)
 				return idx, index.BuildStats{}, err

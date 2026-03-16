@@ -2,15 +2,11 @@
 package index
 
 import (
-	"errors"
-	"io/fs"
+	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/odvcencio/gotreesitter/grammars"
@@ -104,11 +100,11 @@ func normalizeExtension(extension string) string {
 }
 
 func (b *Builder) BuildPath(path string) (*model.Index, error) {
-	idx, _, err := b.BuildPathIncremental(path, nil)
+	idx, _, err := b.BuildPathIncremental(context.Background(), path, nil)
 	return idx, err
 }
 
-func (b *Builder) BuildPathIncremental(path string, previous *model.Index) (*model.Index, BuildStats, error) {
+func (b *Builder) BuildPathIncremental(ctx context.Context, path string, previous *model.Index) (*model.Index, BuildStats, error) {
 	stats := BuildStats{}
 
 	if strings.TrimSpace(path) == "" {
@@ -126,25 +122,12 @@ func (b *Builder) BuildPathIncremental(path string, previous *model.Index) (*mod
 		return nil, stats, err
 	}
 
-	root := target
-	candidates := make([]sourceCandidate, 0, 128)
-	if info.IsDir() {
-		candidates, err = b.collectCandidates(target)
-		if err != nil {
-			return nil, stats, err
-		}
-	} else {
-		root = filepath.Dir(target)
-		if parser, ok := b.parserForPath(target); ok {
-			candidates = append(candidates, sourceCandidate{
-				Path:            target,
-				Parser:          parser,
-				SizeBytes:       info.Size(),
-				ModTimeUnixNano: info.ModTime().UnixNano(),
-			})
-		}
+	// Single-file mode: parse one file directly without the gateway walk.
+	if !info.IsDir() {
+		return b.buildSingleFile(target, info, previous)
 	}
-	root = filepath.Clean(root)
+
+	root := filepath.Clean(target)
 
 	index := &model.Index{
 		Version:     schemaVersion,
@@ -154,180 +137,286 @@ func (b *Builder) BuildPathIncremental(path string, previous *model.Index) (*mod
 
 	previousByPath := previousFilesByPath(previous, root)
 
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].Path < candidates[j].Path
-	})
-	tasks := make([]parseTask, 0, len(candidates))
-	orderedFiles := make([]model.FileSummary, 0, len(candidates))
-	orderedValid := make([]bool, 0, len(candidates))
-	for _, candidate := range candidates {
-		stats.CandidateFiles++
-
-		relPath, relErr := filepath.Rel(root, candidate.Path)
+	// Build the gateway policy.
+	policy := grammars.DefaultPolicy()
+	policy.ShouldParse = func(absPath string, size int64, modTime time.Time) bool {
+		// Skip files inside hidden directories (dot-prefixed), matching
+		// the old collectCandidates behaviour.
+		relPath, relErr := filepath.Rel(root, absPath)
 		if relErr != nil {
-			relPath = candidate.Path
+			return false
+		}
+		relPath = filepath.ToSlash(relPath)
+		for _, seg := range strings.Split(relPath, "/") {
+			if strings.HasPrefix(seg, ".") && seg != "." {
+				return false
+			}
+		}
+
+		// Skip files matching ignore patterns.
+		if b.ignore != nil {
+			if b.ignore.Match(relPath, false) {
+				return false
+			}
+		}
+
+		// Skip files we have no parser for.
+		if _, ok := b.parserForPath(absPath); !ok {
+			return false
+		}
+
+		// Incremental reuse: skip files that haven't changed.
+		if prev, ok := previousByPath[relPath]; ok {
+			parser, _ := b.parserForPath(absPath)
+			lang := ""
+			if parser != nil {
+				lang = parser.Language()
+			}
+			if canReuseSummary(prev, size, modTime.UnixNano(), lang) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Wire ignore matcher's directory-level patterns into SkipDirs
+	// is not possible generically, but the gateway already skips .git,
+	// .graft, .hg, .svn, vendor, node_modules. The ShouldParse hook
+	// above handles hidden dirs and ignore-matched files.
+
+	// Collect reused files from the previous index that are still present
+	// on disk and unchanged. We must also walk to discover them, but the
+	// gateway's ShouldParse=false means they won't appear in the channel.
+	// We pre-collect reused entries before the walk.
+	type reusedEntry struct {
+		relPath string
+		summary model.FileSummary
+	}
+	var reused []reusedEntry
+	for relPath, prev := range previousByPath {
+		absPath := filepath.Join(root, filepath.FromSlash(relPath))
+		fi, statErr := os.Stat(absPath)
+		if statErr != nil {
+			// File removed or inaccessible — don't reuse.
+			continue
+		}
+		parser, ok := b.parserForPath(absPath)
+		if !ok {
+			continue
+		}
+		if !canReuseSummary(prev, fi.Size(), fi.ModTime().UnixNano(), parser.Language()) {
+			continue
+		}
+		// Check hidden dir and ignore filters for the reused path too.
+		skip := false
+		for _, seg := range strings.Split(relPath, "/") {
+			if strings.HasPrefix(seg, ".") && seg != "." {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		if b.ignore != nil && b.ignore.Match(relPath, false) {
+			continue
+		}
+		entry := prev
+		entry.Path = relPath
+		entry.Language = parser.Language()
+		entry.SizeBytes = fi.Size()
+		entry.ModTimeUnixNano = fi.ModTime().UnixNano()
+		for i := range entry.Symbols {
+			entry.Symbols[i].File = relPath
+		}
+		for i := range entry.References {
+			entry.References[i].File = relPath
+		}
+		reused = append(reused, reusedEntry{relPath: relPath, summary: entry})
+		stats.ReusedFiles++
+	}
+
+	// Stream parsed files from the gateway.
+	type parsedEntry struct {
+		relPath string
+		summary model.FileSummary
+		err     error
+	}
+	var parsed []parsedEntry
+
+	results, _ := grammars.WalkAndParse(ctx, root, policy)
+	for file := range results {
+		relPath, relErr := filepath.Rel(root, file.Path)
+		if relErr != nil {
+			relPath = file.Path
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		if previousFile, ok := previousByPath[relPath]; ok && canReuseSummary(previousFile, candidate, candidate.Parser.Language()) {
-			reused := previousFile
-			reused.Path = relPath
-			reused.Language = candidate.Parser.Language()
-			reused.SizeBytes = candidate.SizeBytes
-			reused.ModTimeUnixNano = candidate.ModTimeUnixNano
-			for i := range reused.Symbols {
-				reused.Symbols[i].File = relPath
-			}
-			for i := range reused.References {
-				reused.References[i].File = relPath
-			}
-			orderedFiles = append(orderedFiles, reused)
-			orderedValid = append(orderedValid, true)
-			stats.ReusedFiles++
+		stats.CandidateFiles++
+
+		if file.Err != nil {
+			index.Errors = append(index.Errors, model.ParseError{
+				Path:  relPath,
+				Error: file.Err.Error(),
+			})
+			file.Close()
 			continue
 		}
 
-		position := len(orderedFiles)
-		orderedFiles = append(orderedFiles, model.FileSummary{})
-		orderedValid = append(orderedValid, false)
-		tasks = append(tasks, parseTask{
-			Position:        position,
-			FilePath:        candidate.Path,
-			RelPath:         relPath,
-			Parser:          candidate.Parser,
-			SizeBytes:       candidate.SizeBytes,
-			ModTimeUnixNano: candidate.ModTimeUnixNano,
-		})
-	}
+		// Use the builder's parser to extract the summary from the
+		// gateway-provided source bytes (option 3: re-parse via the
+		// lang.Parser interface but skip the file read).
+		parser, ok := b.parserForPath(file.Path)
+		if !ok {
+			file.Close()
+			continue
+		}
 
-	results := b.parseFiles(tasks)
-	index.Files = make([]model.FileSummary, 0, len(orderedFiles))
-	for _, result := range results {
-		if result.Err != nil {
-			index.Errors = append(index.Errors, model.ParseError{
-				Path:  result.RelPath,
-				Error: result.Err.Error(),
+		summary, parseErr := parser.Parse(file.Path, file.Source)
+		file.Close()
+
+		if parseErr != nil {
+			parsed = append(parsed, parsedEntry{
+				relPath: relPath,
+				err:     parseErr,
 			})
 			continue
 		}
-		orderedFiles[result.Position] = result.Summary
-		orderedValid[result.Position] = true
+
+		summary.Path = relPath
+		summary.SizeBytes = file.Size
+		summary.ModTimeUnixNano = 0 // filled below from stat
+		summary.Language = parser.Language()
+
+		// Get mod time from disk for the summary.
+		if fi, statErr := os.Stat(file.Path); statErr == nil {
+			summary.ModTimeUnixNano = fi.ModTime().UnixNano()
+		}
+
+		for i := range summary.Symbols {
+			summary.Symbols[i].File = relPath
+		}
+		for i := range summary.References {
+			summary.References[i].File = relPath
+		}
+
+		parsed = append(parsed, parsedEntry{relPath: relPath, summary: summary})
 		stats.ParsedFiles++
 	}
 
-	for i, valid := range orderedValid {
-		if !valid {
-			continue
+	// Handle parse errors from the parsed entries.
+	for _, p := range parsed {
+		if p.err != nil {
+			index.Errors = append(index.Errors, model.ParseError{
+				Path:  p.relPath,
+				Error: p.err.Error(),
+			})
 		}
-		index.Files = append(index.Files, orderedFiles[i])
+	}
+
+	// Merge reused and freshly parsed files, sorted by path.
+	filesByPath := make(map[string]model.FileSummary, len(reused)+len(parsed))
+	for _, r := range reused {
+		filesByPath[r.relPath] = r.summary
+	}
+	for _, p := range parsed {
+		if p.err == nil {
+			filesByPath[p.relPath] = p.summary
+		}
+	}
+
+	// Also count reused files as candidates.
+	stats.CandidateFiles += stats.ReusedFiles
+
+	paths := make([]string, 0, len(filesByPath))
+	for p := range filesByPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
+	index.Files = make([]model.FileSummary, 0, len(paths))
+	for _, p := range paths {
+		index.Files = append(index.Files, filesByPath[p])
 	}
 
 	return index, stats, nil
 }
 
-type parseTask struct {
-	Position        int
-	FilePath        string
-	RelPath         string
-	Parser          lang.Parser
-	SizeBytes       int64
-	ModTimeUnixNano int64
-}
+// buildSingleFile handles the single-file indexing path (when the target is
+// a file rather than a directory).
+func (b *Builder) buildSingleFile(target string, info os.FileInfo, previous *model.Index) (*model.Index, BuildStats, error) {
+	stats := BuildStats{}
+	root := filepath.Clean(filepath.Dir(target))
 
-type parseResult struct {
-	Position int
-	RelPath  string
-	Summary  model.FileSummary
-	Err      error
-}
-
-type sourceCandidate struct {
-	Path            string
-	Parser          lang.Parser
-	SizeBytes       int64
-	ModTimeUnixNano int64
-}
-
-func (b *Builder) parseFiles(tasks []parseTask) []parseResult {
-	if len(tasks) == 0 {
-		return nil
+	index := &model.Index{
+		Version:     schemaVersion,
+		Root:        root,
+		GeneratedAt: time.Now().UTC(),
 	}
 
-	results := make([]parseResult, len(tasks))
-	workers := indexWorkerCount(len(tasks))
-
-	taskCh := make(chan int, len(tasks))
-	var wg sync.WaitGroup
-	wg.Add(workers)
-	for i := 0; i < workers; i++ {
-		go func() {
-			defer wg.Done()
-			for idx := range taskCh {
-				task := tasks[idx]
-				result := parseResult{
-					Position: task.Position,
-					RelPath:  task.RelPath,
-				}
-
-				source, readErr := os.ReadFile(task.FilePath)
-				if readErr != nil {
-					result.Err = readErr
-					results[idx] = result
-					continue
-				}
-
-				summary, parseErr := task.Parser.Parse(task.FilePath, source)
-				if parseErr != nil {
-					result.Err = parseErr
-					results[idx] = result
-					continue
-				}
-
-				summary.Path = task.RelPath
-				summary.SizeBytes = task.SizeBytes
-				summary.ModTimeUnixNano = task.ModTimeUnixNano
-				for i := range summary.Symbols {
-					summary.Symbols[i].File = task.RelPath
-				}
-				for i := range summary.References {
-					summary.References[i].File = task.RelPath
-				}
-				result.Summary = summary
-				results[idx] = result
-			}
-		}()
+	parser, ok := b.parserForPath(target)
+	if !ok {
+		return index, stats, nil
 	}
 
-	for i := range tasks {
-		taskCh <- i
+	relPath, relErr := filepath.Rel(root, target)
+	if relErr != nil {
+		relPath = filepath.Base(target)
 	}
-	close(taskCh)
-	wg.Wait()
-	return results
-}
+	relPath = filepath.ToSlash(relPath)
 
-func indexWorkerCount(taskCount int) int {
-	if taskCount <= 0 {
-		return 0
-	}
+	stats.CandidateFiles = 1
 
-	if raw := strings.TrimSpace(os.Getenv("GTS_INDEX_WORKERS")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			if parsed > taskCount {
-				return taskCount
-			}
-			return parsed
+	previousByPath := previousFilesByPath(previous, root)
+	if prev, ok := previousByPath[relPath]; ok && canReuseSummary(prev, info.Size(), info.ModTime().UnixNano(), parser.Language()) {
+		reused := prev
+		reused.Path = relPath
+		reused.Language = parser.Language()
+		reused.SizeBytes = info.Size()
+		reused.ModTimeUnixNano = info.ModTime().UnixNano()
+		for i := range reused.Symbols {
+			reused.Symbols[i].File = relPath
 		}
+		for i := range reused.References {
+			reused.References[i].File = relPath
+		}
+		index.Files = append(index.Files, reused)
+		stats.ReusedFiles = 1
+		return index, stats, nil
 	}
 
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 1
+	source, readErr := os.ReadFile(target)
+	if readErr != nil {
+		index.Errors = append(index.Errors, model.ParseError{
+			Path:  relPath,
+			Error: readErr.Error(),
+		})
+		return index, stats, nil
 	}
-	if workers > taskCount {
-		workers = taskCount
+
+	summary, parseErr := parser.Parse(target, source)
+	if parseErr != nil {
+		index.Errors = append(index.Errors, model.ParseError{
+			Path:  relPath,
+			Error: parseErr.Error(),
+		})
+		return index, stats, nil
 	}
-	return workers
+
+	summary.Path = relPath
+	summary.SizeBytes = info.Size()
+	summary.ModTimeUnixNano = info.ModTime().UnixNano()
+	summary.Language = parser.Language()
+	for i := range summary.Symbols {
+		summary.Symbols[i].File = relPath
+	}
+	for i := range summary.References {
+		summary.References[i].File = relPath
+	}
+	index.Files = append(index.Files, summary)
+	stats.ParsedFiles = 1
+
+	return index, stats, nil
 }
 
 func previousFilesByPath(previous *model.Index, root string) map[string]model.FileSummary {
@@ -347,14 +436,14 @@ func previousFilesByPath(previous *model.Index, root string) map[string]model.Fi
 	return reused
 }
 
-func canReuseSummary(summary model.FileSummary, candidate sourceCandidate, language string) bool {
+func canReuseSummary(summary model.FileSummary, sizeBytes int64, modTimeUnixNano int64, language string) bool {
 	if summary.Language != language {
 		return false
 	}
-	if summary.SizeBytes != candidate.SizeBytes {
+	if summary.SizeBytes != sizeBytes {
 		return false
 	}
-	if summary.ModTimeUnixNano != candidate.ModTimeUnixNano {
+	if summary.ModTimeUnixNano != modTimeUnixNano {
 		return false
 	}
 	return true
@@ -368,64 +457,4 @@ func (b *Builder) parserForPath(path string) (lang.Parser, bool) {
 
 func (b *Builder) ParserForPath(path string) (lang.Parser, bool) {
 	return b.parserForPath(path)
-}
-
-func (b *Builder) collectCandidates(root string) ([]sourceCandidate, error) {
-	if strings.TrimSpace(root) == "" {
-		return nil, errors.New("root path is empty")
-	}
-
-	files := make([]sourceCandidate, 0, 128)
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if entry.IsDir() {
-			name := entry.Name()
-			if name == ".git" || name == ".hg" || name == ".svn" || name == "node_modules" || name == "vendor" {
-				if path != root {
-					return filepath.SkipDir
-				}
-			}
-			if strings.HasPrefix(name, ".") && path != root {
-				return filepath.SkipDir
-			}
-			if path != root && b.ignore != nil {
-				relPath, relErr := filepath.Rel(root, path)
-				if relErr == nil && b.ignore.Match(filepath.ToSlash(relPath), true) {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-
-		if b.ignore != nil {
-			relPath, relErr := filepath.Rel(root, path)
-			if relErr == nil && b.ignore.Match(filepath.ToSlash(relPath), false) {
-				return nil
-			}
-		}
-
-		parser, ok := b.parserForPath(path)
-		if !ok {
-			return nil
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		files = append(files, sourceCandidate{
-			Path:            path,
-			Parser:          parser,
-			SizeBytes:       info.Size(),
-			ModTimeUnixNano: info.ModTime().UnixNano(),
-		})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return files, nil
 }

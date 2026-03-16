@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -137,7 +138,7 @@ func TestBuildPathIncremental_ReusesUnchangedFiles(t *testing.T) {
 	write("b.go", "package sample\n\nfunc B() {}\n")
 
 	builder := NewBuilder()
-	first, firstStats, err := builder.BuildPathIncremental(tmpDir, nil)
+	first, firstStats, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental first returned error: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestBuildPathIncremental_ReusesUnchangedFiles(t *testing.T) {
 		t.Fatalf("unexpected first stats: %+v", firstStats)
 	}
 
-	second, secondStats, err := builder.BuildPathIncremental(tmpDir, first)
+	second, secondStats, err := builder.BuildPathIncremental(context.Background(), tmpDir, first)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental second returned error: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestBuildPathIncremental_ParsesOnlyChangedFile(t *testing.T) {
 	}
 
 	builder := NewBuilder()
-	first, _, err := builder.BuildPathIncremental(tmpDir, nil)
+	first, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental first returned error: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestBuildPathIncremental_ParsesOnlyChangedFile(t *testing.T) {
 		t.Fatalf("WriteFile updated a.go failed: %v", err)
 	}
 
-	second, secondStats, err := builder.BuildPathIncremental(tmpDir, first)
+	second, secondStats, err := builder.BuildPathIncremental(context.Background(), tmpDir, first)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental second returned error: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestBuildPathIncremental_RemovedFileDropsFromIndex(t *testing.T) {
 	}
 
 	builder := NewBuilder()
-	first, _, err := builder.BuildPathIncremental(tmpDir, nil)
+	first, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental first returned error: %v", err)
 	}
@@ -218,7 +219,7 @@ func TestBuildPathIncremental_RemovedFileDropsFromIndex(t *testing.T) {
 		t.Fatalf("Remove b.go failed: %v", err)
 	}
 
-	second, secondStats, err := builder.BuildPathIncremental(tmpDir, first)
+	second, secondStats, err := builder.BuildPathIncremental(context.Background(), tmpDir, first)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental second returned error: %v", err)
 	}
@@ -257,26 +258,6 @@ func F%d() {}
 	want := []string{"alpha.go", "mid.go", "zeta.go"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected file order got=%v want=%v", got, want)
-	}
-}
-
-func TestIndexWorkerCount(t *testing.T) {
-	t.Setenv("GTS_INDEX_WORKERS", "2")
-	if got := indexWorkerCount(10); got != 2 {
-		t.Fatalf("expected 2 workers, got %d", got)
-	}
-
-	t.Setenv("GTS_INDEX_WORKERS", "999")
-	if got := indexWorkerCount(3); got != 3 {
-		t.Fatalf("expected worker count capped at 3, got %d", got)
-	}
-
-	t.Setenv("GTS_INDEX_WORKERS", "invalid")
-	if got := indexWorkerCount(0); got != 0 {
-		t.Fatalf("expected 0 workers for empty task set, got %d", got)
-	}
-	if got := indexWorkerCount(1); got < 1 {
-		t.Fatalf("expected at least 1 worker, got %d", got)
 	}
 }
 
@@ -328,7 +309,7 @@ func Func%03d() int { return %d }
 	}
 
 	builder := NewBuilder()
-	base, _, err := builder.BuildPathIncremental(tmpDir, nil)
+	base, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
 	if err != nil {
 		b.Fatalf("initial BuildPathIncremental returned error: %v", err)
 	}
@@ -337,7 +318,7 @@ func Func%03d() int { return %d }
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		next, _, err := builder.BuildPathIncremental(tmpDir, base)
+		next, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, base)
 		if err != nil {
 			b.Fatalf("BuildPathIncremental returned error: %v", err)
 		}

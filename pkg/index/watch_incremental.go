@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -87,10 +88,10 @@ func (s *WatchState) get(path string) (watchTreeState, bool) {
 func (b *Builder) ApplyWatchChanges(current *model.Index, changedAbsPaths []string, state *WatchState, opts WatchUpdateOptions) (*model.Index, BuildStats, error) {
 	stats := BuildStats{}
 	if current == nil {
-		return b.BuildPathIncremental(".", nil)
+		return b.BuildPathIncremental(context.Background(), ".", nil)
 	}
 	if len(changedAbsPaths) == 0 {
-		next, nextStats, err := b.BuildPathIncremental(current.Root, current)
+		next, nextStats, err := b.BuildPathIncremental(context.Background(), current.Root, current)
 		if err != nil {
 			return nil, stats, err
 		}

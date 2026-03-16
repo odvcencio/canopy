@@ -1,6 +1,7 @@
 package index
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,7 +47,7 @@ func B() {
 `)
 
 	builder := NewBuilder()
-	current, _, err := builder.BuildPathIncremental(tmpDir, nil)
+	current, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
 	if err != nil {
 		t.Fatalf("BuildPathIncremental initial returned error: %v", err)
 	}

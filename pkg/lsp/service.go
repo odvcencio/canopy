@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -403,7 +404,7 @@ func (s *Service) handleDidSave(params json.RawMessage) {
 	prev := s.idx
 	s.mu.RUnlock()
 
-	newIdx, _, err := s.builder.BuildPathIncremental(s.rootPath, prev)
+	newIdx, _, err := s.builder.BuildPathIncremental(context.Background(), s.rootPath, prev)
 	if err != nil {
 		return
 	}
