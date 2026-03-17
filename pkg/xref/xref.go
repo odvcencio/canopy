@@ -56,15 +56,30 @@ type UnresolvedCall struct {
 	CandidateCount int         `json:"candidate_count,omitempty"`
 }
 
+// internalEdge stores edges compactly during Build using indices into the definitions slice.
+type internalEdge struct {
+	callerIdx  int
+	calleeIdx  int
+	resolution string
+	count      int
+	samples    []CallSample
+}
+
 type Graph struct {
 	Root        string           `json:"root"`
 	Definitions []Definition     `json:"definitions,omitempty"`
 	Edges       []Edge           `json:"edges,omitempty"`
 	Unresolved  []UnresolvedCall `json:"unresolved,omitempty"`
 
-	defByID       map[string]Definition
-	outgoingByDef map[string][]Edge
-	incomingByDef map[string][]Edge
+	// Index-based lookup maps — values are indices into Definitions or Edges.
+	defByID              map[string]int   // defID -> index into Definitions
+	callableByName       map[string][]int // name -> indices into Definitions
+	callableByPkgName    map[string][]int // pkg\x00name -> indices into Definitions
+	callableByFileName   map[string][]int // file\x00name -> indices into Definitions
+	callableByFile       map[string][]int // file -> indices into Definitions
+
+	outgoingByDef map[string][]int // defID -> indices into Edges
+	incomingByDef map[string][]int // defID -> indices into Edges
 	outgoingCount map[string]int
 	incomingCount map[string]int
 }
@@ -90,84 +105,92 @@ func Build(idx *model.Index) (Graph, error) {
 	}
 
 	definitions := make([]Definition, 0, idx.SymbolCount())
-	defByID := map[string]Definition{}
-	callableByName := map[string][]Definition{}
-	callableByPackageName := map[string][]Definition{}
-	callableByFileName := map[string][]Definition{}
-	callableByFile := map[string][]Definition{}
+	defByID := map[string]int{}
+	callableByName := map[string][]int{}
+	callableByPkgName := map[string][]int{}
+	callableByFileName := map[string][]int{}
+	callableByFile := map[string][]int{}
 
 	for _, file := range idx.Files {
 		pkg := packageFromPath(file.Path)
 		for _, symbol := range file.Symbols {
 			def := definitionFromSymbol(file.Path, pkg, symbol)
+			idx := len(definitions)
 			definitions = append(definitions, def)
-			defByID[def.ID] = def
+			defByID[def.ID] = idx
 
 			if !def.Callable {
 				continue
 			}
-			callableByName[def.Name] = append(callableByName[def.Name], def)
-			callableByPackageName[keyPackageName(pkg, def.Name)] = append(callableByPackageName[keyPackageName(pkg, def.Name)], def)
-			callableByFileName[keyFileName(def.File, def.Name)] = append(callableByFileName[keyFileName(def.File, def.Name)], def)
-			callableByFile[def.File] = append(callableByFile[def.File], def)
+			callableByName[def.Name] = append(callableByName[def.Name], idx)
+			callableByPkgName[keyPackageName(pkg, def.Name)] = append(callableByPkgName[keyPackageName(pkg, def.Name)], idx)
+			callableByFileName[keyFileName(def.File, def.Name)] = append(callableByFileName[keyFileName(def.File, def.Name)], idx)
+			callableByFile[def.File] = append(callableByFile[def.File], idx)
 		}
 	}
 
 	sortDefinitions(definitions)
-	for key := range callableByName {
-		sortDefinitions(callableByName[key])
+	// Rebuild defByID after sorting since indices changed.
+	for i := range definitions {
+		defByID[definitions[i].ID] = i
 	}
-	for key := range callableByPackageName {
-		sortDefinitions(callableByPackageName[key])
-	}
-	for key := range callableByFileName {
-		sortDefinitions(callableByFileName[key])
-	}
-	for key := range callableByFile {
-		sortDefinitions(callableByFile[key])
+	// Rebuild callable maps after sorting.
+	callableByName = map[string][]int{}
+	callableByPkgName = map[string][]int{}
+	callableByFileName = map[string][]int{}
+	callableByFile = map[string][]int{}
+	for i := range definitions {
+		def := &definitions[i]
+		if !def.Callable {
+			continue
+		}
+		callableByName[def.Name] = append(callableByName[def.Name], i)
+		callableByPkgName[keyPackageName(def.Package, def.Name)] = append(callableByPkgName[keyPackageName(def.Package, def.Name)], i)
+		callableByFileName[keyFileName(def.File, def.Name)] = append(callableByFileName[keyFileName(def.File, def.Name)], i)
+		callableByFile[def.File] = append(callableByFile[def.File], i)
 	}
 
-	edgeByPair := map[string]*Edge{}
+	edgeByPair := map[string]*internalEdge{}
 	unresolved := make([]UnresolvedCall, 0, 32)
 	modulePath := modulePathFromRoot(idx.Root)
 
 	for _, file := range idx.Files {
 		pkg := packageFromPath(file.Path)
 		scope := buildImportScope(file.Imports, modulePath)
-		callablesInFile := callableByFile[file.Path]
+		callableIndices := callableByFile[file.Path]
 		for _, ref := range file.References {
 			if !isCallReference(ref.Kind) {
 				continue
 			}
 
-			caller := findEnclosingCallable(callablesInFile, ref.StartLine)
-			if caller == nil {
+			callerIdx := findEnclosingCallableIdx(definitions, callableIndices, ref.StartLine)
+			if callerIdx == -1 {
 				unresolved = append(unresolved, unresolvedFromRef(file.Path, pkg, ref, nil, "outside_callable", 0))
 				continue
 			}
 
-			callee, resolution, reason, candidateCount, ok := resolveCallee(file.Path, pkg, ref.Name, scope, callableByFileName, callableByPackageName, callableByName)
+			calleeIdx, resolution, reason, candidateCount, ok := resolveCalleeIdx(file.Path, pkg, ref.Name, scope, definitions, callableByFileName, callableByPkgName, callableByName)
 			if !ok {
-				callerCopy := *caller
+				callerCopy := definitions[callerIdx]
 				unresolved = append(unresolved, unresolvedFromRef(file.Path, pkg, ref, &callerCopy, reason, candidateCount))
 				continue
 			}
 
-			pairKey := keyPair(caller.ID, callee.ID)
+			pairKey := keyPair(definitions[callerIdx].ID, definitions[calleeIdx].ID)
 			edge, exists := edgeByPair[pairKey]
 			if !exists {
-				edge = &Edge{
-					Caller:     *caller,
-					Callee:     callee,
-					Resolution: resolution,
-					Count:      0,
-					Samples:    make([]CallSample, 0, 3),
+				edge = &internalEdge{
+					callerIdx:  callerIdx,
+					calleeIdx:  calleeIdx,
+					resolution: resolution,
+					count:      0,
+					samples:    make([]CallSample, 0, 3),
 				}
 				edgeByPair[pairKey] = edge
 			}
-			edge.Count++
-			if len(edge.Samples) < 3 {
-				edge.Samples = append(edge.Samples, CallSample{
+			edge.count++
+			if len(edge.samples) < 3 {
+				edge.samples = append(edge.samples, CallSample{
 					File:        file.Path,
 					StartLine:   ref.StartLine,
 					StartColumn: ref.StartColumn,
@@ -178,31 +201,40 @@ func Build(idx *model.Index) (Graph, error) {
 		}
 	}
 
+	// Materialize edges from internal edges, referencing the backing definitions slice.
 	edges := make([]Edge, 0, len(edgeByPair))
-	outgoingByDef := map[string][]Edge{}
-	incomingByDef := map[string][]Edge{}
+	outgoingByDef := map[string][]int{}
+	incomingByDef := map[string][]int{}
 	outgoingCount := map[string]int{}
 	incomingCount := map[string]int{}
-	for _, edge := range edgeByPair {
-		edges = append(edges, *edge)
-		outgoingByDef[edge.Caller.ID] = append(outgoingByDef[edge.Caller.ID], *edge)
-		incomingByDef[edge.Callee.ID] = append(incomingByDef[edge.Callee.ID], *edge)
-		outgoingCount[edge.Caller.ID] += edge.Count
-		incomingCount[edge.Callee.ID] += edge.Count
+	for _, ie := range edgeByPair {
+		edgeIdx := len(edges)
+		edges = append(edges, Edge{
+			Caller:     definitions[ie.callerIdx],
+			Callee:     definitions[ie.calleeIdx],
+			Resolution: ie.resolution,
+			Count:      ie.count,
+			Samples:    ie.samples,
+		})
+		callerID := definitions[ie.callerIdx].ID
+		calleeID := definitions[ie.calleeIdx].ID
+		outgoingByDef[callerID] = append(outgoingByDef[callerID], edgeIdx)
+		incomingByDef[calleeID] = append(incomingByDef[calleeID], edgeIdx)
+		outgoingCount[callerID] += ie.count
+		incomingCount[calleeID] += ie.count
 	}
 
 	sort.Slice(edges, func(i, j int) bool {
 		return edgeLess(edges[i], edges[j])
 	})
-	for key := range outgoingByDef {
-		sort.Slice(outgoingByDef[key], func(i, j int) bool {
-			return edgeLess(outgoingByDef[key][i], outgoingByDef[key][j])
-		})
-	}
-	for key := range incomingByDef {
-		sort.Slice(incomingByDef[key], func(i, j int) bool {
-			return edgeLess(incomingByDef[key][i], incomingByDef[key][j])
-		})
+	// Rebuild edge index maps after sorting since edge indices changed.
+	outgoingByDef = map[string][]int{}
+	incomingByDef = map[string][]int{}
+	for i := range edges {
+		callerID := edges[i].Caller.ID
+		calleeID := edges[i].Callee.ID
+		outgoingByDef[callerID] = append(outgoingByDef[callerID], i)
+		incomingByDef[calleeID] = append(incomingByDef[calleeID], i)
 	}
 
 	sort.Slice(unresolved, func(i, j int) bool {
@@ -219,15 +251,19 @@ func Build(idx *model.Index) (Graph, error) {
 	})
 
 	return Graph{
-		Root:          idx.Root,
-		Definitions:   definitions,
-		Edges:         edges,
-		Unresolved:    unresolved,
-		defByID:       defByID,
-		outgoingByDef: outgoingByDef,
-		incomingByDef: incomingByDef,
-		outgoingCount: outgoingCount,
-		incomingCount: incomingCount,
+		Root:               idx.Root,
+		Definitions:        definitions,
+		Edges:              edges,
+		Unresolved:         unresolved,
+		defByID:            defByID,
+		callableByName:     callableByName,
+		callableByPkgName:  callableByPkgName,
+		callableByFileName: callableByFileName,
+		callableByFile:     callableByFile,
+		outgoingByDef:      outgoingByDef,
+		incomingByDef:      incomingByDef,
+		outgoingCount:      outgoingCount,
+		incomingCount:      incomingCount,
 	}, nil
 }
 
@@ -269,22 +305,26 @@ func (g Graph) OutgoingCount(defID string) int {
 }
 
 func (g Graph) OutgoingEdges(defID string) []Edge {
-	edges := g.outgoingByDef[defID]
-	if len(edges) == 0 {
+	indices := g.outgoingByDef[defID]
+	if len(indices) == 0 {
 		return nil
 	}
-	out := make([]Edge, len(edges))
-	copy(out, edges)
+	out := make([]Edge, len(indices))
+	for i, idx := range indices {
+		out[i] = g.Edges[idx]
+	}
 	return out
 }
 
 func (g Graph) IncomingEdges(defID string) []Edge {
-	edges := g.incomingByDef[defID]
-	if len(edges) == 0 {
+	indices := g.incomingByDef[defID]
+	if len(indices) == 0 {
 		return nil
 	}
-	out := make([]Edge, len(edges))
-	copy(out, edges)
+	out := make([]Edge, len(indices))
+	for i, idx := range indices {
+		out[i] = g.Edges[idx]
+	}
 	return out
 }
 
@@ -300,12 +340,12 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 		if rootID == "" || rootSet[rootID] {
 			continue
 		}
-		root, ok := g.defByID[rootID]
+		idx, ok := g.defByID[rootID]
 		if !ok {
 			continue
 		}
 		rootSet[rootID] = true
-		roots = append(roots, root)
+		roots = append(roots, g.Definitions[idx])
 	}
 	sortDefinitions(roots)
 
@@ -320,7 +360,7 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 		queue = append(queue, queueItem{id: root.ID, depth: 0})
 	}
 
-	edgeSet := map[string]Edge{}
+	edgeSet := map[string]int{} // pair key -> index into g.Edges
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -328,15 +368,16 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 			continue
 		}
 
-		var candidateEdges []Edge
+		var candidateEdgeIndices []int
 		if reverse {
-			candidateEdges = g.incomingByDef[current.id]
+			candidateEdgeIndices = g.incomingByDef[current.id]
 		} else {
-			candidateEdges = g.outgoingByDef[current.id]
+			candidateEdgeIndices = g.outgoingByDef[current.id]
 		}
 
-		for _, edge := range candidateEdges {
-			edgeSet[keyPair(edge.Caller.ID, edge.Callee.ID)] = edge
+		for _, ei := range candidateEdgeIndices {
+			edge := &g.Edges[ei]
+			edgeSet[keyPair(edge.Caller.ID, edge.Callee.ID)] = ei
 
 			nextID := edge.Callee.ID
 			if reverse {
@@ -352,15 +393,15 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 
 	nodes := make([]Definition, 0, len(visitedNodes))
 	for id := range visitedNodes {
-		if definition, ok := g.defByID[id]; ok {
-			nodes = append(nodes, definition)
+		if idx, ok := g.defByID[id]; ok {
+			nodes = append(nodes, g.Definitions[idx])
 		}
 	}
 	sortDefinitions(nodes)
 
 	edges := make([]Edge, 0, len(edgeSet))
-	for _, edge := range edgeSet {
-		edges = append(edges, edge)
+	for _, ei := range edgeSet {
+		edges = append(edges, g.Edges[ei])
 	}
 	sort.Slice(edges, func(i, j int) bool {
 		return edgeLess(edges[i], edges[j])
@@ -375,42 +416,45 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 	}
 }
 
-func resolveCallee(
+// resolveCalleeIdx resolves a callee by name using index-based lookups,
+// returning the index into the definitions slice.
+func resolveCalleeIdx(
 	filePath, pkg, name string,
 	scope importScope,
-	callableByFileName map[string][]Definition,
-	callableByPackageName map[string][]Definition,
-	callableByName map[string][]Definition,
-) (Definition, string, string, int, bool) {
-	if candidates := uniqueDefinitions(callableByFileName[keyFileName(filePath, name)]); len(candidates) > 0 {
+	definitions []Definition,
+	callableByFileName map[string][]int,
+	callableByPkgName map[string][]int,
+	callableByName map[string][]int,
+) (int, string, string, int, bool) {
+	if candidates := uniqueDefIndices(definitions, callableByFileName[keyFileName(filePath, name)]); len(candidates) > 0 {
 		if len(candidates) == 1 {
 			return candidates[0], "file", "", 1, true
 		}
-		return Definition{}, "", "ambiguous_file", len(candidates), false
+		return -1, "", "ambiguous_file", len(candidates), false
 	}
 
-	if candidates := candidatesByImportScope(uniqueDefinitions(callableByName[name]), scope); len(candidates) > 0 {
+	if candidates := candidatesByImportScopeIdx(definitions, uniqueDefIndices(definitions, callableByName[name]), scope); len(candidates) > 0 {
 		if len(candidates) == 1 {
 			return candidates[0], "import", "", 1, true
 		}
-		return Definition{}, "", "ambiguous_import", len(candidates), false
+		return -1, "", "ambiguous_import", len(candidates), false
 	}
 
-	if candidates := uniqueDefinitions(callableByPackageName[keyPackageName(pkg, name)]); len(candidates) > 0 {
+	if candidates := uniqueDefIndices(definitions, callableByPkgName[keyPackageName(pkg, name)]); len(candidates) > 0 {
 		if len(candidates) == 1 {
 			return candidates[0], "package", "", 1, true
 		}
-		return Definition{}, "", "ambiguous_package", len(candidates), false
+		return -1, "", "ambiguous_package", len(candidates), false
 	}
 
-	if candidates := uniqueDefinitions(callableByName[name]); len(candidates) > 0 {
+	if candidates := uniqueDefIndices(definitions, callableByName[name]); len(candidates) > 0 {
 		if len(candidates) == 1 {
 			return candidates[0], "global", "", 1, true
 		}
-		return Definition{}, "", "ambiguous_global", len(candidates), false
+		return -1, "", "ambiguous_global", len(candidates), false
 	}
 
-	return Definition{}, "", "not_found", 0, false
+	return -1, "", "not_found", 0, false
 }
 
 func unresolvedFromRef(filePath, pkg string, ref model.Reference, caller *Definition, reason string, candidateCount int) UnresolvedCall {
@@ -444,30 +488,28 @@ func definitionFromSymbol(filePath, pkg string, symbol model.Symbol) Definition 
 	}
 }
 
-func findEnclosingCallable(definitions []Definition, line int) *Definition {
-	if len(definitions) == 0 {
-		return nil
+// findEnclosingCallableIdx finds the enclosing callable definition for a given line,
+// returning its index in the definitions slice (or -1 if not found).
+func findEnclosingCallableIdx(definitions []Definition, callableIndices []int, line int) int {
+	if len(callableIndices) == 0 {
+		return -1
 	}
 
-	bestIndex := -1
+	bestIdx := -1
 	bestSpan := 0
-	for i := range definitions {
-		definition := definitions[i]
-		if line < definition.StartLine || line > definition.EndLine {
+	for _, ci := range callableIndices {
+		def := &definitions[ci]
+		if line < def.StartLine || line > def.EndLine {
 			continue
 		}
-		span := definition.EndLine - definition.StartLine
-		if bestIndex == -1 || span < bestSpan || (span == bestSpan && definition.StartLine > definitions[bestIndex].StartLine) {
-			bestIndex = i
+		span := def.EndLine - def.StartLine
+		if bestIdx == -1 || span < bestSpan || (span == bestSpan && def.StartLine > definitions[bestIdx].StartLine) {
+			bestIdx = ci
 			bestSpan = span
 		}
 	}
 
-	if bestIndex == -1 {
-		return nil
-	}
-	copyDef := definitions[bestIndex]
-	return &copyDef
+	return bestIdx
 }
 
 func isCallableKind(kind string) bool {
@@ -545,18 +587,19 @@ func splitImportTokens(path string) []string {
 	return out
 }
 
-func candidatesByImportScope(candidates []Definition, scope importScope) []Definition {
-	if len(candidates) == 0 || (len(scope.paths) == 0 && len(scope.packages) == 0 && len(scope.tokens) == 0) {
+// candidatesByImportScopeIdx filters definition indices by import scope.
+func candidatesByImportScopeIdx(definitions []Definition, candidateIndices []int, scope importScope) []int {
+	if len(candidateIndices) == 0 || (len(scope.paths) == 0 && len(scope.packages) == 0 && len(scope.tokens) == 0) {
 		return nil
 	}
 
-	filtered := make([]Definition, 0, len(candidates))
-	for _, candidate := range candidates {
-		if definitionMatchesImportScope(candidate, scope) {
-			filtered = append(filtered, candidate)
+	filtered := make([]int, 0, len(candidateIndices))
+	for _, ci := range candidateIndices {
+		if definitionMatchesImportScope(definitions[ci], scope) {
+			filtered = append(filtered, ci)
 		}
 	}
-	return uniqueDefinitions(filtered)
+	return uniqueDefIndices(definitions, filtered)
 }
 
 func definitionMatchesImportScope(def Definition, scope importScope) bool {
@@ -746,21 +789,36 @@ func edgeLess(left, right Edge) bool {
 	return left.Caller.File < right.Caller.File
 }
 
-func uniqueDefinitions(items []Definition) []Definition {
-	if len(items) == 0 {
+// uniqueDefIndices deduplicates definition indices by ID, preserving sort order.
+func uniqueDefIndices(definitions []Definition, indices []int) []int {
+	if len(indices) == 0 {
 		return nil
 	}
 
 	seen := map[string]bool{}
-	unique := make([]Definition, 0, len(items))
-	for _, item := range items {
-		if seen[item.ID] {
+	unique := make([]int, 0, len(indices))
+	for _, idx := range indices {
+		id := definitions[idx].ID
+		if seen[id] {
 			continue
 		}
-		seen[item.ID] = true
-		unique = append(unique, item)
+		seen[id] = true
+		unique = append(unique, idx)
 	}
-	sortDefinitions(unique)
+	// Sort by definition order (file, startLine, kind, name).
+	sort.Slice(unique, func(i, j int) bool {
+		di, dj := &definitions[unique[i]], &definitions[unique[j]]
+		if di.File == dj.File {
+			if di.StartLine == dj.StartLine {
+				if di.Kind == dj.Kind {
+					return di.Name < dj.Name
+				}
+				return di.Kind < dj.Kind
+			}
+			return di.StartLine < dj.StartLine
+		}
+		return di.File < dj.File
+	})
 	return unique
 }
 
