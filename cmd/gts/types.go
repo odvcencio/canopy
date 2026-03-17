@@ -37,6 +37,14 @@ type queryLanguageError struct {
 	Error    string `json:"error"`
 }
 
+type structuralGrepMatch struct {
+	File      string            `json:"file"`
+	StartLine int               `json:"start_line"`
+	EndLine   int               `json:"end_line"`
+	Text      string            `json:"text"`
+	Captures  map[string]string `json:"captures,omitempty"`
+}
+
 type deadMatch struct {
 	File      string `json:"file"`
 	Package   string `json:"package"`
