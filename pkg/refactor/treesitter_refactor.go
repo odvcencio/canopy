@@ -100,6 +100,7 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		if !ok {
 			continue
 		}
+		entry.TagsQuery = grammars.ResolveTagsQuery(entry)
 		if strings.TrimSpace(entry.TagsQuery) == "" {
 			continue
 		}
@@ -319,7 +320,7 @@ func languageEntriesByExt() map[string]grammars.LangEntry {
 	entries := grammars.AllLanguages()
 	byExt := make(map[string]grammars.LangEntry, len(entries))
 	for _, entry := range entries {
-		if strings.TrimSpace(entry.TagsQuery) == "" {
+		if entry.Language == nil {
 			continue
 		}
 		for _, ext := range entry.Extensions {

@@ -3,10 +3,12 @@ package index
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/odvcencio/gotreesitter/grammars"
@@ -39,21 +41,22 @@ func NewBuilder() *Builder {
 }
 
 func (b *Builder) registerTreesitterParsers() {
+	// AllLanguages returns metadata without loading grammars. We register lazy
+	// parsers that defer grammar loading and tags-query inference until the
+	// first file of each language is actually parsed — avoiding the 2-4 GB
+	// memory spike from decompressing all 200+ grammars at startup.
 	entries := append([]grammars.LangEntry(nil), grammars.AllLanguages()...)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Name < entries[j].Name
 	})
 
 	for _, entry := range entries {
-		if strings.TrimSpace(entry.TagsQuery) == "" {
+		// Skip entries that have no Language loader — they can never parse.
+		if entry.Language == nil {
 			continue
 		}
 
-		parser, err := treesitter.NewParser(entry)
-		if err != nil {
-			continue
-		}
-
+		lp := newLazyParser(entry)
 		for _, ext := range entry.Extensions {
 			normalized := normalizeExtension(ext)
 			if normalized == "" {
@@ -62,9 +65,46 @@ func (b *Builder) registerTreesitterParsers() {
 			if _, exists := b.parsers[normalized]; exists {
 				continue
 			}
-			b.parsers[normalized] = parser
+			b.parsers[normalized] = lp
 		}
 	}
+}
+
+// lazyParser implements lang.Parser but defers grammar loading and tags-query
+// inference until the first call to Parse. This avoids loading all 200+
+// grammars at NewBuilder time (the root cause of OOM on large repos).
+type lazyParser struct {
+	entry  grammars.LangEntry
+	parser *treesitter.Parser
+	once   sync.Once
+	err    error
+}
+
+func newLazyParser(entry grammars.LangEntry) *lazyParser {
+	return &lazyParser{entry: entry}
+}
+
+func (lp *lazyParser) init() {
+	// Infer the tags query on demand (loads the grammar for this one language).
+	entry := lp.entry
+	entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+	if strings.TrimSpace(entry.TagsQuery) == "" {
+		lp.err = fmt.Errorf("no tags query available for %q", entry.Name)
+		return
+	}
+	lp.parser, lp.err = treesitter.NewParser(entry)
+}
+
+func (lp *lazyParser) Language() string {
+	return lp.entry.Name
+}
+
+func (lp *lazyParser) Parse(path string, src []byte) (model.FileSummary, error) {
+	lp.once.Do(lp.init)
+	if lp.err != nil {
+		return model.FileSummary{}, lp.err
+	}
+	return lp.parser.Parse(path, src)
 }
 
 // SetIgnore configures a .gtsignore-style matcher to skip paths during indexing.

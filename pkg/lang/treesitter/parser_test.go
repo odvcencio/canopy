@@ -810,11 +810,12 @@ func A() {
 func findEntryByExtension(tb testing.TB, extension string) grammars.LangEntry {
 	tb.Helper()
 	for _, entry := range grammars.AllLanguages() {
-		if strings.TrimSpace(entry.TagsQuery) == "" {
-			continue
-		}
 		for _, ext := range entry.Extensions {
 			if ext == extension {
+				entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+				if strings.TrimSpace(entry.TagsQuery) == "" {
+					continue
+				}
 				return entry
 			}
 		}
