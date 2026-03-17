@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/odvcencio/gotreesitter v0.7.4
+	github.com/odvcencio/gotreesitter v0.8.0
 	github.com/spf13/cobra v1.10.2
 )
 
