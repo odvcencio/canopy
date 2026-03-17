@@ -76,10 +76,19 @@ func Analyze(idx *model.Index, opts Options) (*Report, error) {
 	complexity.EnrichWithXref(compReport, graph)
 
 	// Get git churn data.
-	churnMap, err := GitChurn(root, opts.Since)
+	rawChurn, err := GitChurn(root, opts.Since)
 	if err != nil {
 		// If git fails (not a repo, etc.), proceed with zero churn.
-		churnMap = map[string]FileChurn{}
+		rawChurn = map[string]FileChurn{}
+	}
+	// Normalize churn map keys: git returns paths relative to repo root
+	// (e.g. "internal/service/pr.go") but the index uses paths relative to
+	// the scan root (e.g. "pr.go"). Strip the scan root prefix so keys match.
+	churnMap := make(map[string]FileChurn, len(rawChurn))
+	cleanRoot := strings.TrimSuffix(strings.TrimSuffix(root, "/"), "\\") + "/"
+	for path, churn := range rawChurn {
+		key := strings.TrimPrefix(path, cleanRoot)
+		churnMap[key] = churn
 	}
 
 	// Build hotspot entries from complexity data.
@@ -141,10 +150,18 @@ func GitChurn(root, since string) (map[string]FileChurn, error) {
 		root = "."
 	}
 
-	args := []string{"-C", root, "log", "--numstat", "--format=%aN"}
+	// Resolve the actual git repo root — the scan path may be a subdirectory.
+	gitRoot := resolveGitRoot(root)
+	if gitRoot == "" {
+		gitRoot = root
+	}
+
+	args := []string{"-C", gitRoot, "log", "--numstat", "--format=%aN"}
 	if since != "" {
 		args = append(args, "--since="+normalizeSince(since))
 	}
+	// Scope to the scan path within the repo.
+	args = append(args, "--", root)
 
 	cmd := exec.Command("git", args...)
 	out, err := cmd.Output()
@@ -153,6 +170,16 @@ func GitChurn(root, since string) (map[string]FileChurn, error) {
 	}
 
 	return ParseGitLog(string(out)), nil
+}
+
+// resolveGitRoot finds the git repository root from a given path.
+func resolveGitRoot(path string) string {
+	cmd := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ParseGitLog extracts per-file commit counts and author counts from git log --numstat output.

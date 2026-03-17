@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/odvcencio/gts-suite/pkg/model"
 	"github.com/odvcencio/gts-suite/pkg/xref"
 )
 
@@ -19,10 +20,19 @@ func newDeadCmd() *cobra.Command {
 	var countOnly bool
 
 	cmd := &cobra.Command{
-		Use:     "dead [path]",
+		Use:     "dead [path...]",
 		Aliases: []string{"gtsdead"},
 		Short:   "List callable definitions with zero incoming call references",
-		Args:    cobra.MaximumNArgs(1),
+		Long: `List callable definitions with zero incoming call references.
+
+Multiple paths can be provided to build the cross-reference graph across
+packages, reducing false positives for exported symbols called from other
+packages.
+
+Examples:
+  gts dead internal/service/
+  gts dead internal/service/ internal/api/    # cross-package analysis`,
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := strings.ToLower(strings.TrimSpace(kind))
 			switch mode {
@@ -31,14 +41,22 @@ func newDeadCmd() *cobra.Command {
 				return fmt.Errorf("unsupported --kind %q (expected callable|function|method)", kind)
 			}
 
-			target := "."
-			if len(args) == 1 {
-				target = args[0]
+			targets := args
+			if len(targets) == 0 {
+				targets = []string{"."}
 			}
 
-			idx, err := loadOrBuild(cachePath, target)
-			if err != nil {
-				return err
+			var idx *model.Index
+			for i, target := range targets {
+				built, err := loadOrBuild(cachePath, target)
+				if err != nil {
+					return err
+				}
+				if i == 0 {
+					idx = built
+				} else {
+					idx.Files = append(idx.Files, built.Files...)
+				}
 			}
 
 			graph, err := xref.Build(idx)

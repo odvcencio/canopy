@@ -333,7 +333,25 @@ func modulePathFromRoot(root string) string {
 	if strings.TrimSpace(root) == "" {
 		return ""
 	}
-	goModPath := filepath.Join(root, "go.mod")
+	dir, err := filepath.Abs(root)
+	if err != nil {
+		dir = root
+	}
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if module := parseModuleLine(goModPath); module != "" {
+			return module
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+func parseModuleLine(goModPath string) string {
 	file, err := os.Open(goModPath)
 	if err != nil {
 		return ""

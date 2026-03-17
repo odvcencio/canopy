@@ -52,7 +52,7 @@ func ParseSelector(raw string) (Selector, error) {
 		selector.Kind = kind
 	}
 	if !validKind.MatchString(selector.Kind) {
-		return Selector{}, fmt.Errorf("invalid selector kind %q", selector.Kind)
+		return Selector{}, fmt.Errorf("invalid selector kind %q: must be a tree-sitter node type (e.g. function_definition, method_definition, type_definition, *); see 'gts grep --help'", selector.Kind)
 	}
 
 	if filter == "" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,14 +18,29 @@ func newImpactCmd() *cobra.Command {
 	var maxDepth int
 
 	cmd := &cobra.Command{
-		Use:     "impact [path]",
+		Use:     "impact [symbol] [path]",
 		Aliases: []string{"gtsimpact"},
 		Short:   "Compute blast radius of changed symbols via reverse call graph",
-		Args:    cobra.MaximumNArgs(1),
+		Args:    cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
-			if len(args) == 1 {
-				target = args[0]
+			switch len(args) {
+			case 2:
+				// gts impact <symbol> <path>
+				if strings.TrimSpace(changed) == "" {
+					changed = args[0]
+				}
+				target = args[1]
+			case 1:
+				// Heuristic: if it looks like a path (contains / or . or exists as dir), treat as path.
+				// Otherwise treat as symbol name.
+				if looksLikePath(args[0]) {
+					target = args[0]
+				} else if strings.TrimSpace(changed) == "" {
+					changed = args[0]
+				} else {
+					target = args[0]
+				}
 			}
 
 			idx, err := loadOrBuild(cachePath, target)
@@ -84,4 +100,18 @@ func newImpactCmd() *cobra.Command {
 	cmd.Flags().StringVar(&diffRef, "diff", "", "git diff ref (e.g. HEAD~1)")
 	cmd.Flags().IntVar(&maxDepth, "max-depth", 10, "max reverse walk depth")
 	return cmd
+}
+
+func looksLikePath(s string) bool {
+	if strings.ContainsAny(s, "/\\") {
+		return true
+	}
+	info, err := os.Stat(s)
+	if err == nil && info.IsDir() {
+		return true
+	}
+	return strings.HasSuffix(s, ".go") || strings.HasSuffix(s, ".py") ||
+		strings.HasSuffix(s, ".ts") || strings.HasSuffix(s, ".js") ||
+		strings.HasSuffix(s, ".rs") || strings.HasSuffix(s, ".java") ||
+		s == "."
 }
