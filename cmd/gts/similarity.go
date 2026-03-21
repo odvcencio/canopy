@@ -15,6 +15,7 @@ func newSimilarityCmd() *cobra.Command {
 	var threshold float64
 	var jsonOutput bool
 	var method string
+	var top int
 
 	cmd := &cobra.Command{
 		Use:     "similarity <path-a> [path-b]",
@@ -45,7 +46,7 @@ func newSimilarityCmd() *cobra.Command {
 				}
 			}
 
-			pairs, err := similarity.Compare(idxA, idxB, pathA, pathB, threshold)
+			pairs, err := similarity.Compare(idxA, idxB, pathA, pathB, threshold, top)
 			if err != nil {
 				return err
 			}
@@ -96,5 +97,6 @@ func newSimilarityCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&threshold, "threshold", 0.7, "minimum similarity score (0.0-1.0)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().StringVar(&method, "method", "both", "match method: exact|fuzzy|both")
+	cmd.Flags().IntVar(&top, "top", 100, "limit to top N results (0 for all)")
 	return cmd
 }

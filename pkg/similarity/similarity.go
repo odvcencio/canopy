@@ -13,11 +13,12 @@ import (
 
 // FunctionPrint represents a normalized fingerprint of a function.
 type FunctionPrint struct {
-	File      string `json:"file"`
-	Name      string `json:"name"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	BodyHash  string `json:"body_hash"`
+	File           string `json:"file"`
+	Name           string `json:"name"`
+	StartLine      int    `json:"start_line"`
+	EndLine        int    `json:"end_line"`
+	BodyHash       string `json:"body_hash"`
+	normalizedBody string // cached, not serialized
 }
 
 // Pair represents a pair of similar functions.
@@ -118,11 +119,12 @@ func extractPrints(idx *model.Index, root string) []FunctionPrint {
 			}
 			normalized := NormalizeBody(body)
 			prints = append(prints, FunctionPrint{
-				File:      f.Path,
-				Name:      sym.Name,
-				StartLine: sym.StartLine,
-				EndLine:   sym.EndLine,
-				BodyHash:  hashBody(normalized),
+				File:           f.Path,
+				Name:           sym.Name,
+				StartLine:      sym.StartLine,
+				EndLine:        sym.EndLine,
+				BodyHash:       hashBody(normalized),
+				normalizedBody: normalized,
 			})
 		}
 	}
@@ -130,7 +132,7 @@ func extractPrints(idx *model.Index, root string) []FunctionPrint {
 }
 
 // Compare finds similar functions between two indexes.
-func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64) ([]Pair, error) {
+func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64, top int) ([]Pair, error) {
 	aPrints := extractPrints(a, aRoot)
 	bPrints := extractPrints(b, bRoot)
 
@@ -139,7 +141,7 @@ func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64) ([]Pair,
 	for _, ap := range aPrints {
 		for _, bp := range bPrints {
 			if ap.File == bp.File && ap.Name == bp.Name {
-				continue // skip self
+				continue
 			}
 
 			// Exact match
@@ -148,17 +150,17 @@ func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64) ([]Pair,
 				continue
 			}
 
-			// Fuzzy match via n-grams
-			aBody, err := readFunctionBody(aRoot, ap.File, ap.StartLine, ap.EndLine)
-			if err != nil {
+			// Size-ratio short-circuit: if shorter body < 1/3 longer, Jaccard can't reach 0.7
+			aNorm := ap.normalizedBody
+			bNorm := bp.normalizedBody
+			shorter, longer := len(aNorm), len(bNorm)
+			if shorter > longer {
+				shorter, longer = longer, shorter
+			}
+			if longer > 0 && float64(shorter)/float64(longer) < 0.33 {
 				continue
 			}
-			bBody, err := readFunctionBody(bRoot, bp.File, bp.StartLine, bp.EndLine)
-			if err != nil {
-				continue
-			}
-			aNorm := NormalizeBody(aBody)
-			bNorm := NormalizeBody(bBody)
+
 			aGrams := Ngrams(aNorm, 3)
 			bGrams := Ngrams(bNorm, 3)
 			score := Jaccard(aGrams, bGrams)
@@ -171,6 +173,11 @@ func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64) ([]Pair,
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].Score > pairs[j].Score
 	})
+
+	// Apply top-N cap
+	if top > 0 && len(pairs) > top {
+		pairs = pairs[:top]
+	}
 
 	return pairs, nil
 }
