@@ -28,7 +28,8 @@ func (s *Service) callSimilarity(args map[string]any) (any, error) {
 		rootB = pathB
 	}
 
-	pairs, err := similarity.Compare(idxA, idxB, pathA, rootB, threshold)
+	top := intArg(args, "top", 100)
+	pairs, err := similarity.Compare(idxA, idxB, pathA, rootB, threshold, top)
 	if err != nil {
 		return nil, err
 	}
