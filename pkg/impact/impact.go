@@ -83,7 +83,7 @@ func Analyze(idx *model.Index, opts Options) (*Result, error) {
 	walk := graph.Walk(rootIDs, maxDepth, true)
 
 	// BFS to compute distances from changed symbols.
-	distances := bfsDistances(graph, rootIDs, maxDepth)
+	distances := bfsDistances(&graph, rootIDs, maxDepth)
 
 	// Build affected list excluding the changed symbols themselves.
 	affected := make([]AffectedSymbol, 0, len(walk.Nodes))
@@ -198,7 +198,7 @@ func resolveChanged(graph xref.Graph, idx *model.Index, opts Options) ([]xref.De
 
 // bfsDistances computes the shortest distance from any root to each reachable node
 // via reverse edges (incoming edges = callers).
-func bfsDistances(graph xref.Graph, rootIDs []string, maxDepth int) map[string]int {
+func bfsDistances(graph *xref.Graph, rootIDs []string, maxDepth int) map[string]int {
 	distances := map[string]int{}
 	type item struct {
 		id   string
@@ -218,7 +218,7 @@ func bfsDistances(graph xref.Graph, rootIDs []string, maxDepth int) map[string]i
 		}
 
 		for _, edge := range graph.IncomingEdges(current.id) {
-			callerID := edge.Caller.ID
+			callerID := graph.EdgeCaller(edge).ID
 			if _, visited := distances[callerID]; visited {
 				continue
 			}

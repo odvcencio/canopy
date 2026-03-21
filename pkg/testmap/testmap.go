@@ -106,7 +106,7 @@ func Map(idx *model.Index, opts Options) (*Report, error) {
 		walk := graph.Walk([]string{testDef.ID}, maxDepth, false)
 
 		// BFS to compute distances from this test function.
-		distances := bfsDistances(testDef.ID, walk.Edges, maxDepth)
+		distances := bfsDistances(testDef.ID, &graph, walk.Edges, maxDepth)
 
 		for _, node := range walk.Nodes {
 			if node.ID == testDef.ID {
@@ -236,11 +236,11 @@ func Map(idx *model.Index, opts Options) (*Report, error) {
 }
 
 // bfsDistances computes shortest distances from a source node through the given edges.
-func bfsDistances(sourceID string, edges []xref.Edge, maxDepth int) map[string]int {
+func bfsDistances(sourceID string, graph *xref.Graph, edges []xref.Edge, maxDepth int) map[string]int {
 	// Build adjacency list (forward: caller -> callee).
 	adj := map[string][]string{}
 	for _, e := range edges {
-		adj[e.Caller.ID] = append(adj[e.Caller.ID], e.Callee.ID)
+		adj[graph.EdgeCaller(e).ID] = append(adj[graph.EdgeCaller(e).ID], graph.EdgeCallee(e).ID)
 	}
 
 	dist := map[string]int{sourceID: 0}

@@ -37,7 +37,7 @@ func (s *Service) callCallgraph(args map[string]any) (any, error) {
 	return map[string]any{
 		"roots":                 walk.Roots,
 		"nodes":                 walk.Nodes,
-		"edges":                 walk.Edges,
+		"edges":                 walk.MaterializedEdges(),
 		"depth":                 walk.Depth,
 		"reverse":               walk.Reverse,
 		"unresolved_call_count": len(graph.Unresolved),

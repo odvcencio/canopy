@@ -66,16 +66,16 @@ func newCallgraphCmd() *cobra.Command {
 					})
 				}
 				return emitJSON(struct {
-					Roots               []xref.Definition `json:"roots,omitempty"`
-					Nodes               []xref.Definition `json:"nodes,omitempty"`
-					Edges               []xref.Edge       `json:"edges,omitempty"`
-					Depth               int               `json:"depth"`
-					Reverse             bool              `json:"reverse"`
-					UnresolvedCallCount int               `json:"unresolved_call_count"`
+					Roots               []xref.Definition        `json:"roots,omitempty"`
+					Nodes               []xref.Definition        `json:"nodes,omitempty"`
+					Edges               []xref.MaterializedEdge  `json:"edges,omitempty"`
+					Depth               int                      `json:"depth"`
+					Reverse             bool                     `json:"reverse"`
+					UnresolvedCallCount int                      `json:"unresolved_call_count"`
 				}{
 					Roots:               walk.Roots,
 					Nodes:               walk.Nodes,
-					Edges:               walk.Edges,
+					Edges:               walk.MaterializedEdges(),
 					Depth:               walk.Depth,
 					Reverse:             walk.Reverse,
 					UnresolvedCallCount: len(graph.Unresolved),
@@ -100,14 +100,16 @@ func newCallgraphCmd() *cobra.Command {
 				fmt.Printf("root: %s:%d %s %s\n", root.File, root.StartLine, root.Kind, definitionLabel(root))
 			}
 			for _, edge := range walk.Edges {
+				caller := graph.EdgeCaller(edge)
+				callee := graph.EdgeCallee(edge)
 				fmt.Printf(
 					"%s:%d %s -> %s:%d %s count=%d resolution=%s\n",
-					edge.Caller.File,
-					edge.Caller.StartLine,
-					definitionLabel(edge.Caller),
-					edge.Callee.File,
-					edge.Callee.StartLine,
-					definitionLabel(edge.Callee),
+					caller.File,
+					caller.StartLine,
+					definitionLabel(*caller),
+					callee.File,
+					callee.StartLine,
+					definitionLabel(*callee),
 					edge.Count,
 					edge.Resolution,
 				)

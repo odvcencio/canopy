@@ -211,8 +211,8 @@ func TestBuildImportAwareResolutionPrefersImportedPackage(t *testing.T) {
 	if edge.Resolution != "import" {
 		t.Fatalf("expected resolution import, got %q", edge.Resolution)
 	}
-	if edge.Callee.Package != "alpha" {
-		t.Fatalf("expected callee package alpha, got %q", edge.Callee.Package)
+	if graph.EdgeCallee(edge).Package != "alpha" {
+		t.Fatalf("expected callee package alpha, got %q", graph.EdgeCallee(edge).Package)
 	}
 }
 
@@ -312,8 +312,8 @@ func TestBuildImportAwareResolutionMatchesModuleQualifiedImport(t *testing.T) {
 	if edge.Resolution != "import" {
 		t.Fatalf("expected resolution import, got %q", edge.Resolution)
 	}
-	if edge.Callee.Package != "pkg/alpha" {
-		t.Fatalf("expected callee package pkg/alpha, got %q", edge.Callee.Package)
+	if graph.EdgeCallee(edge).Package != "pkg/alpha" {
+		t.Fatalf("expected callee package pkg/alpha, got %q", graph.EdgeCallee(edge).Package)
 	}
 }
 
@@ -498,11 +498,11 @@ func TestBuildCallResolution(t *testing.T) {
 	}
 
 	edge := graph.Edges[0]
-	if edge.Caller.Name != "Alpha" {
-		t.Fatalf("expected caller Alpha, got %q", edge.Caller.Name)
+	if graph.EdgeCaller(edge).Name != "Alpha" {
+		t.Fatalf("expected caller Alpha, got %q", graph.EdgeCaller(edge).Name)
 	}
-	if edge.Callee.Name != "Beta" {
-		t.Fatalf("expected callee Beta, got %q", edge.Callee.Name)
+	if graph.EdgeCallee(edge).Name != "Beta" {
+		t.Fatalf("expected callee Beta, got %q", graph.EdgeCallee(edge).Name)
 	}
 	if edge.Count != 1 {
 		t.Fatalf("expected edge count 1, got %d", edge.Count)
@@ -569,22 +569,22 @@ func TestBuildCrossFileResolution(t *testing.T) {
 	}
 
 	edge := graph.Edges[0]
-	if edge.Caller.Name != "Invoke" {
-		t.Fatalf("expected caller Invoke, got %q", edge.Caller.Name)
+	if graph.EdgeCaller(edge).Name != "Invoke" {
+		t.Fatalf("expected caller Invoke, got %q", graph.EdgeCaller(edge).Name)
 	}
-	if edge.Callee.Name != "Target" {
-		t.Fatalf("expected callee Target, got %q", edge.Callee.Name)
+	if graph.EdgeCallee(edge).Name != "Target" {
+		t.Fatalf("expected callee Target, got %q", graph.EdgeCallee(edge).Name)
 	}
 	// Cross-file, different package -- resolved at global level
 	if edge.Resolution != "global" {
 		t.Fatalf("expected resolution 'global', got %q", edge.Resolution)
 	}
 	// Verify the files are correct
-	if edge.Caller.File != "src/caller.go" {
-		t.Fatalf("expected caller file 'src/caller.go', got %q", edge.Caller.File)
+	if graph.EdgeCaller(edge).File != "src/caller.go" {
+		t.Fatalf("expected caller file 'src/caller.go', got %q", graph.EdgeCaller(edge).File)
 	}
-	if edge.Callee.File != "lib/target.go" {
-		t.Fatalf("expected callee file 'lib/target.go', got %q", edge.Callee.File)
+	if graph.EdgeCallee(edge).File != "lib/target.go" {
+		t.Fatalf("expected callee file 'lib/target.go', got %q", graph.EdgeCallee(edge).File)
 	}
 }
 
@@ -1080,7 +1080,7 @@ func TestIncomingOutgoingCounts(t *testing.T) {
 
 	// Verify the Hub->Spoke1 edge has count=2 (two call sites)
 	for _, e := range hubOutgoing {
-		if e.Callee.Name == "Spoke1" {
+		if graph.EdgeCallee(e).Name == "Spoke1" {
 			if e.Count != 2 {
 				t.Fatalf("expected Hub->Spoke1 edge count 2, got %d", e.Count)
 			}

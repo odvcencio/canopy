@@ -321,7 +321,7 @@ func pickSemanticRelatedSymbols(idx *model.Index, fileSummary model.FileSummary,
 		}
 
 		for _, edge := range graph.OutgoingEdges(current.id) {
-			callee := edge.Callee
+			callee := graph.EdgeCallee(edge)
 			nextDepth := current.depth + 1
 
 			item := scoredByID[callee.ID]

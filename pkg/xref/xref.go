@@ -35,6 +35,15 @@ type CallSample struct {
 }
 
 type Edge struct {
+	CallerIdx  int          `json:"-"`
+	CalleeIdx  int          `json:"-"`
+	Resolution string       `json:"resolution"`
+	Count      int          `json:"count"`
+	Samples    []CallSample `json:"samples,omitempty"`
+}
+
+// MaterializedEdge is the serialization-friendly form of Edge with full Definition copies.
+type MaterializedEdge struct {
 	Caller     Definition   `json:"caller"`
 	Callee     Definition   `json:"callee"`
 	Resolution string       `json:"resolution"`
@@ -84,6 +93,32 @@ type Graph struct {
 	incomingCount map[string]int
 }
 
+// EdgeCaller returns a pointer to the caller Definition for the given edge.
+func (g *Graph) EdgeCaller(e Edge) *Definition { return &g.Definitions[e.CallerIdx] }
+
+// EdgeCallee returns a pointer to the callee Definition for the given edge.
+func (g *Graph) EdgeCallee(e Edge) *Definition { return &g.Definitions[e.CalleeIdx] }
+
+// MaterializeEdge produces a MaterializedEdge with full Definition copies.
+func (g *Graph) MaterializeEdge(e Edge) MaterializedEdge {
+	return MaterializedEdge{
+		Caller:     g.Definitions[e.CallerIdx],
+		Callee:     g.Definitions[e.CalleeIdx],
+		Resolution: e.Resolution,
+		Count:      e.Count,
+		Samples:    e.Samples,
+	}
+}
+
+// MaterializeEdges produces MaterializedEdge copies for a slice of compact edges.
+func (g *Graph) MaterializeEdges(edges []Edge) []MaterializedEdge {
+	result := make([]MaterializedEdge, len(edges))
+	for i, e := range edges {
+		result[i] = g.MaterializeEdge(e)
+	}
+	return result
+}
+
 type importScope struct {
 	paths        map[string]struct{}
 	packages     map[string]struct{}
@@ -94,9 +129,18 @@ type importScope struct {
 type Walk struct {
 	Roots   []Definition `json:"roots,omitempty"`
 	Nodes   []Definition `json:"nodes,omitempty"`
-	Edges   []Edge       `json:"edges,omitempty"`
+	Edges   []Edge       `json:"-"`
 	Depth   int          `json:"depth"`
 	Reverse bool         `json:"reverse"`
+	graph   *Graph
+}
+
+// MaterializedEdges returns edges with full Definition copies for serialization.
+func (w Walk) MaterializedEdges() []MaterializedEdge {
+	if w.graph == nil {
+		return nil
+	}
+	return w.graph.MaterializeEdges(w.Edges)
 }
 
 func Build(idx *model.Index) (Graph, error) {
@@ -210,8 +254,8 @@ func Build(idx *model.Index) (Graph, error) {
 	for _, ie := range edgeByPair {
 		edgeIdx := len(edges)
 		edges = append(edges, Edge{
-			Caller:     definitions[ie.callerIdx],
-			Callee:     definitions[ie.calleeIdx],
+			CallerIdx:  ie.callerIdx,
+			CalleeIdx:  ie.calleeIdx,
 			Resolution: ie.resolution,
 			Count:      ie.count,
 			Samples:    ie.samples,
@@ -225,14 +269,14 @@ func Build(idx *model.Index) (Graph, error) {
 	}
 
 	sort.Slice(edges, func(i, j int) bool {
-		return edgeLess(edges[i], edges[j])
+		return edgeLessWithDefs(definitions, edges[i], edges[j])
 	})
 	// Rebuild edge index maps after sorting since edge indices changed.
 	outgoingByDef = map[string][]int{}
 	incomingByDef = map[string][]int{}
 	for i := range edges {
-		callerID := edges[i].Caller.ID
-		calleeID := edges[i].Callee.ID
+		callerID := definitions[edges[i].CallerIdx].ID
+		calleeID := definitions[edges[i].CalleeIdx].ID
 		outgoingByDef[callerID] = append(outgoingByDef[callerID], i)
 		incomingByDef[calleeID] = append(incomingByDef[calleeID], i)
 	}
@@ -267,7 +311,7 @@ func Build(idx *model.Index) (Graph, error) {
 	}, nil
 }
 
-func (g Graph) FindDefinitions(pattern string, regexMode bool) ([]Definition, error) {
+func (g *Graph) FindDefinitions(pattern string, regexMode bool) ([]Definition, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return nil, fmt.Errorf("definition matcher cannot be empty")
@@ -296,15 +340,15 @@ func (g Graph) FindDefinitions(pattern string, regexMode bool) ([]Definition, er
 	return matches, nil
 }
 
-func (g Graph) IncomingCount(defID string) int {
+func (g *Graph) IncomingCount(defID string) int {
 	return g.incomingCount[defID]
 }
 
-func (g Graph) OutgoingCount(defID string) int {
+func (g *Graph) OutgoingCount(defID string) int {
 	return g.outgoingCount[defID]
 }
 
-func (g Graph) OutgoingEdges(defID string) []Edge {
+func (g *Graph) OutgoingEdges(defID string) []Edge {
 	indices := g.outgoingByDef[defID]
 	if len(indices) == 0 {
 		return nil
@@ -316,7 +360,7 @@ func (g Graph) OutgoingEdges(defID string) []Edge {
 	return out
 }
 
-func (g Graph) IncomingEdges(defID string) []Edge {
+func (g *Graph) IncomingEdges(defID string) []Edge {
 	indices := g.incomingByDef[defID]
 	if len(indices) == 0 {
 		return nil
@@ -328,7 +372,7 @@ func (g Graph) IncomingEdges(defID string) []Edge {
 	return out
 }
 
-func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
+func (g *Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 	if depth <= 0 {
 		depth = 1
 	}
@@ -377,11 +421,13 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 
 		for _, ei := range candidateEdgeIndices {
 			edge := &g.Edges[ei]
-			edgeSet[keyPair(edge.Caller.ID, edge.Callee.ID)] = ei
+			callerID := g.Definitions[edge.CallerIdx].ID
+			calleeID := g.Definitions[edge.CalleeIdx].ID
+			edgeSet[keyPair(callerID, calleeID)] = ei
 
-			nextID := edge.Callee.ID
+			nextID := calleeID
 			if reverse {
-				nextID = edge.Caller.ID
+				nextID = callerID
 			}
 			if visitedNodes[nextID] {
 				continue
@@ -404,7 +450,7 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 		edges = append(edges, g.Edges[ei])
 	}
 	sort.Slice(edges, func(i, j int) bool {
-		return edgeLess(edges[i], edges[j])
+		return edgeLessWithDefs(g.Definitions, edges[i], edges[j])
 	})
 
 	return Walk{
@@ -413,6 +459,7 @@ func (g Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 		Edges:   edges,
 		Depth:   depth,
 		Reverse: reverse,
+		graph:   g,
 	}
 }
 
@@ -770,23 +817,27 @@ func sortDefinitions(items []Definition) {
 	})
 }
 
-func edgeLess(left, right Edge) bool {
-	if left.Caller.File == right.Caller.File {
-		if left.Caller.StartLine == right.Caller.StartLine {
-			if left.Caller.Name == right.Caller.Name {
-				if left.Callee.File == right.Callee.File {
-					if left.Callee.StartLine == right.Callee.StartLine {
-						return left.Callee.Name < right.Callee.Name
+func edgeLessWithDefs(defs []Definition, left, right Edge) bool {
+	lCaller := &defs[left.CallerIdx]
+	rCaller := &defs[right.CallerIdx]
+	if lCaller.File == rCaller.File {
+		if lCaller.StartLine == rCaller.StartLine {
+			if lCaller.Name == rCaller.Name {
+				lCallee := &defs[left.CalleeIdx]
+				rCallee := &defs[right.CalleeIdx]
+				if lCallee.File == rCallee.File {
+					if lCallee.StartLine == rCallee.StartLine {
+						return lCallee.Name < rCallee.Name
 					}
-					return left.Callee.StartLine < right.Callee.StartLine
+					return lCallee.StartLine < rCallee.StartLine
 				}
-				return left.Callee.File < right.Callee.File
+				return lCallee.File < rCallee.File
 			}
-			return left.Caller.Name < right.Caller.Name
+			return lCaller.Name < rCaller.Name
 		}
-		return left.Caller.StartLine < right.Caller.StartLine
+		return lCaller.StartLine < rCaller.StartLine
 	}
-	return left.Caller.File < right.Caller.File
+	return lCaller.File < rCaller.File
 }
 
 // uniqueDefIndices deduplicates definition indices by ID, preserving sort order.
