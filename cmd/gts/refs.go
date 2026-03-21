@@ -16,6 +16,7 @@ func newRefsCmd() *cobra.Command {
 	var regexMode bool
 	var jsonOutput bool
 	var countOnly bool
+	var limit int
 
 	cmd := &cobra.Command{
 		Use:     "refs <name|regex> [path]",
@@ -47,7 +48,9 @@ func newRefsCmd() *cobra.Command {
 				matchReference = compiled.MatchString
 			}
 
-			matches := make([]referenceMatch, 0, idx.ReferenceCount())
+			truncated := false
+			matches := make([]referenceMatch, 0, 256)
+		outer:
 			for _, file := range idx.Files {
 				for _, reference := range file.References {
 					if !matchReference(reference.Name) {
@@ -62,6 +65,10 @@ func newRefsCmd() *cobra.Command {
 						StartColumn: reference.StartColumn,
 						EndColumn:   reference.EndColumn,
 					})
+					if limit > 0 && len(matches) >= limit {
+						truncated = true
+						break outer
+					}
 				}
 			}
 
@@ -81,18 +88,31 @@ func newRefsCmd() *cobra.Command {
 			if jsonOutput {
 				if countOnly {
 					return emitJSON(struct {
-						Count int `json:"count"`
-					}{Count: len(matches)})
+						Count     int  `json:"count"`
+						Truncated bool `json:"truncated,omitempty"`
+					}{Count: len(matches), Truncated: truncated})
+				}
+				if truncated {
+					return emitJSON(struct {
+						Matches   []referenceMatch `json:"matches"`
+						Truncated bool             `json:"truncated"`
+					}{Matches: matches, Truncated: true})
 				}
 				return emitJSON(matches)
 			}
 
 			if countOnly {
 				fmt.Println(len(matches))
+				if truncated {
+					fmt.Printf("truncated: limit=%d\n", limit)
+				}
 				return nil
 			}
 			for _, match := range matches {
 				fmt.Printf("%s:%d:%d %s %s\n", match.File, match.StartLine, match.StartColumn, match.Kind, match.Name)
+			}
+			if truncated {
+				fmt.Printf("truncated: limit=%d\n", limit)
 			}
 			return nil
 		},
@@ -103,6 +123,7 @@ func newRefsCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&regexMode, "regex", false, "treat the first argument as a regular expression")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().BoolVar(&countOnly, "count", false, "print the number of matches")
+	cmd.Flags().IntVar(&limit, "limit", 1000, "maximum number of results (0 for unlimited)")
 	return cmd
 }
 

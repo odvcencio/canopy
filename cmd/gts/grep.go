@@ -76,6 +76,7 @@ func newGrepCmd() *cobra.Command {
 	var lang string
 	var rewrite string
 	var where string
+	var limit int
 
 	cmd := &cobra.Command{
 		Use:     "grep <pattern> [path]",
@@ -156,12 +157,12 @@ AUTO-DETECTION:
 
 			switch mode {
 			case grepModeStructural:
-				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly)
+				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly, limit)
 			case grepModeSelector:
-				return runSelectorGrep(pattern, target, cachePath, noCache, jsonOutput, countOnly)
+				return runSelectorGrep(pattern, target, cachePath, noCache, jsonOutput, countOnly, limit)
 			default:
 				// Auto resolved to structural above; this shouldn't happen.
-				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly)
+				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly, limit)
 			}
 		},
 	}
@@ -175,11 +176,12 @@ AUTO-DETECTION:
 	cmd.Flags().StringVar(&lang, "lang", "", "language for structural grep (auto-detected from files if omitted)")
 	cmd.Flags().StringVar(&rewrite, "rewrite", "", "replacement template for structural matches")
 	cmd.Flags().StringVar(&where, "where", "", "where-clause constraint for structural matches")
+	cmd.Flags().IntVar(&limit, "limit", 1000, "maximum number of results (0 for unlimited)")
 	return cmd
 }
 
 // runSelectorGrep runs the original selector-DSL based grep against the structural index.
-func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, countOnly bool) error {
+func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, countOnly bool, limit int) error {
 	selector, err := query.ParseSelector(pattern)
 	if err != nil {
 		return err
@@ -190,7 +192,9 @@ func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, cou
 		return err
 	}
 
-	matches := make([]grepMatch, 0, idx.SymbolCount())
+	truncated := false
+	matches := make([]grepMatch, 0, 256)
+selectorOuter:
 	for _, file := range idx.Files {
 		for _, symbol := range file.Symbols {
 			if !selector.Match(symbol) {
@@ -204,6 +208,10 @@ func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, cou
 				StartLine: symbol.StartLine,
 				EndLine:   symbol.EndLine,
 			})
+			if limit > 0 && len(matches) >= limit {
+				truncated = true
+				break selectorOuter
+			}
 		}
 	}
 
@@ -220,26 +228,33 @@ func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, cou
 	if jsonOutput {
 		if countOnly {
 			return emitJSON(struct {
-				Mode  string `json:"mode"`
-				Count int    `json:"count"`
+				Mode      string `json:"mode"`
+				Count     int    `json:"count"`
+				Truncated bool   `json:"truncated,omitempty"`
 			}{
-				Mode:  "selector",
-				Count: len(matches),
+				Mode:      "selector",
+				Count:     len(matches),
+				Truncated: truncated,
 			})
 		}
 		return emitJSON(struct {
-			Mode    string      `json:"mode"`
-			Matches []grepMatch `json:"matches"`
-			Count   int         `json:"count"`
+			Mode      string      `json:"mode"`
+			Matches   []grepMatch `json:"matches"`
+			Count     int         `json:"count"`
+			Truncated bool        `json:"truncated,omitempty"`
 		}{
-			Mode:    "selector",
-			Matches: matches,
-			Count:   len(matches),
+			Mode:      "selector",
+			Matches:   matches,
+			Count:     len(matches),
+			Truncated: truncated,
 		})
 	}
 
 	if countOnly {
 		fmt.Println(len(matches))
+		if truncated {
+			fmt.Printf("truncated: limit=%d\n", limit)
+		}
 		return nil
 	}
 
@@ -250,11 +265,14 @@ func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, cou
 		}
 		fmt.Printf("%s:%d:%d %s %s\n", match.File, match.StartLine, match.EndLine, match.Kind, match.Name)
 	}
+	if truncated {
+		fmt.Printf("truncated: limit=%d\n", limit)
+	}
 	return nil
 }
 
 // runStructuralGrep runs the gotreesitter structural grep engine over a file tree.
-func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, jsonOutput, countOnly bool) error {
+func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, jsonOutput, countOnly bool, limit int) error {
 	// Build the full query string for the gotreesitter grep engine.
 	// If the pattern already starts with "find", use it directly (full query form).
 	// Otherwise, construct the query from flags.
@@ -273,13 +291,16 @@ func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, js
 	}
 
 	// Walk files and match.
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	policy := grammars.DefaultPolicy()
 	ch, _ := grammars.WalkAndParse(ctx, absTarget, policy)
 
+	truncated := false
 	var matches []structuralGrepMatch
 	var rewriteEdits []structuralRewriteResult
 
+structuralOuter:
 	for pf := range ch {
 		if pf.Err != nil {
 			pf.Close()
@@ -343,6 +364,11 @@ func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, js
 				Text:      matchText,
 				Captures:  caps,
 			})
+			if limit > 0 && len(matches) >= limit {
+				truncated = true
+				pf.Close()
+				break structuralOuter
+			}
 		}
 
 		// Collect rewrite results if present.
@@ -354,6 +380,10 @@ func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, js
 		}
 
 		pf.Close()
+	}
+	// Cancel context to stop the walker goroutine if we broke out early.
+	if truncated {
+		cancel()
 	}
 
 	// Sort results.
@@ -371,28 +401,35 @@ func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, js
 	if jsonOutput {
 		if countOnly {
 			return emitJSON(struct {
-				Mode  string `json:"mode"`
-				Count int    `json:"count"`
+				Mode      string `json:"mode"`
+				Count     int    `json:"count"`
+				Truncated bool   `json:"truncated,omitempty"`
 			}{
-				Mode:  "structural",
-				Count: len(matches),
+				Mode:      "structural",
+				Count:     len(matches),
+				Truncated: truncated,
 			})
 		}
 		return emitJSON(struct {
-			Mode    string                 `json:"mode"`
-			Matches []structuralGrepMatch  `json:"matches"`
-			Count   int                    `json:"count"`
-			Edits   []structuralRewriteResult `json:"edits,omitempty"`
+			Mode      string                    `json:"mode"`
+			Matches   []structuralGrepMatch     `json:"matches"`
+			Count     int                       `json:"count"`
+			Truncated bool                      `json:"truncated,omitempty"`
+			Edits     []structuralRewriteResult `json:"edits,omitempty"`
 		}{
-			Mode:    "structural",
-			Matches: matches,
-			Count:   len(matches),
-			Edits:   rewriteEdits,
+			Mode:      "structural",
+			Matches:   matches,
+			Count:     len(matches),
+			Truncated: truncated,
+			Edits:     rewriteEdits,
 		})
 	}
 
 	if countOnly {
 		fmt.Println(len(matches))
+		if truncated {
+			fmt.Printf("truncated: limit=%d\n", limit)
+		}
 		return nil
 	}
 
@@ -409,6 +446,9 @@ func runStructuralGrep(pattern, target, langName, whereCl, rewriteTpl string, js
 				fmt.Printf("  $%s = %s\n", name, m.Captures[name])
 			}
 		}
+	}
+	if truncated {
+		fmt.Printf("truncated: limit=%d\n", limit)
 	}
 
 	if len(rewriteEdits) > 0 {
