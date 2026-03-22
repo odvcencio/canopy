@@ -132,9 +132,27 @@ func extractPrints(idx *model.Index, root string) []FunctionPrint {
 }
 
 // Compare finds similar functions between two indexes.
-func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64, top int) ([]Pair, error) {
+// maxFuncs caps the number of functions from each index (0 = unlimited).
+func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64, top int, maxFuncs int) ([]Pair, error) {
 	aPrints := extractPrints(a, aRoot)
 	bPrints := extractPrints(b, bRoot)
+
+	// Cap function count to bound the O(n²) comparison.
+	if maxFuncs > 0 {
+		// Sort by body size descending so we keep the largest/most interesting functions.
+		sort.Slice(aPrints, func(i, j int) bool {
+			return len(aPrints[i].normalizedBody) > len(aPrints[j].normalizedBody)
+		})
+		sort.Slice(bPrints, func(i, j int) bool {
+			return len(bPrints[i].normalizedBody) > len(bPrints[j].normalizedBody)
+		})
+		if len(aPrints) > maxFuncs {
+			aPrints = aPrints[:maxFuncs]
+		}
+		if len(bPrints) > maxFuncs {
+			bPrints = bPrints[:maxFuncs]
+		}
+	}
 
 	var pairs []Pair
 

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -112,7 +113,7 @@ func newRefsCmd() *cobra.Command {
 				fmt.Printf("%s:%d:%d %s %s\n", match.File, match.StartLine, match.StartColumn, match.Kind, match.Name)
 			}
 			if truncated {
-				fmt.Printf("truncated: limit=%d\n", limit)
+				fmt.Fprintf(os.Stderr, "warning: results truncated at limit=%d, use --limit 0 for all\n", limit)
 			}
 			return nil
 		},

@@ -132,18 +132,18 @@ func streamCallgraphJSON(graph *xref.Graph, walk xref.Walk, unresolvedCount int)
 	fmt.Fprintf(w, "{\n")
 
 	// Roots
-	rootsData, _ := json.Marshal(walk.Roots)
+	rootsData, _ := json.MarshalIndent(walk.Roots, "  ", "  ")
 	fmt.Fprintf(w, "  \"roots\": %s,\n", string(rootsData))
 
 	// Nodes
-	nodesData, _ := json.Marshal(walk.Nodes)
+	nodesData, _ := json.MarshalIndent(walk.Nodes, "  ", "  ")
 	fmt.Fprintf(w, "  \"nodes\": %s,\n", string(nodesData))
 
 	// Edges — stream one at a time
 	fmt.Fprintf(w, "  \"edges\": [\n")
 	for i, edge := range walk.Edges {
 		me := graph.MaterializeEdge(edge)
-		data, err := json.Marshal(me)
+		data, err := json.MarshalIndent(me, "    ", "  ")
 		if err != nil {
 			return err
 		}

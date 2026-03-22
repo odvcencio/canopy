@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -266,7 +267,7 @@ selectorOuter:
 		fmt.Printf("%s:%d:%d %s %s\n", match.File, match.StartLine, match.EndLine, match.Kind, match.Name)
 	}
 	if truncated {
-		fmt.Printf("truncated: limit=%d\n", limit)
+		fmt.Fprintf(os.Stderr, "warning: results truncated at limit=%d, use --limit 0 for all\n", limit)
 	}
 	return nil
 }
@@ -449,7 +450,7 @@ structuralOuter:
 		}
 	}
 	if truncated {
-		fmt.Printf("truncated: limit=%d\n", limit)
+		fmt.Fprintf(os.Stderr, "warning: results truncated at limit=%d, use --limit 0 for all\n", limit)
 	}
 
 	if len(rewriteEdits) > 0 {

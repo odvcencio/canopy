@@ -29,7 +29,8 @@ func (s *Service) callSimilarity(args map[string]any) (any, error) {
 	}
 
 	top := intArg(args, "top", 100)
-	pairs, err := similarity.Compare(idxA, idxB, pathA, rootB, threshold, top)
+	maxFuncs := intArg(args, "max_funcs", 2000)
+	pairs, err := similarity.Compare(idxA, idxB, pathA, rootB, threshold, top, maxFuncs)
 	if err != nil {
 		return nil, err
 	}

@@ -57,7 +57,7 @@ func newMapCmd() *cobra.Command {
 			}
 
 			if limit > 0 && limit < len(idx.Files) {
-				fmt.Printf("truncated: limit=%d total_files=%d\n", limit, len(idx.Files))
+				fmt.Fprintf(os.Stderr, "warning: output truncated at limit=%d of %d files, use --limit 0 for all\n", limit, len(idx.Files))
 			}
 
 			if len(idx.Errors) > 0 {
@@ -98,7 +98,7 @@ func streamIndexJSON(w io.Writer, idx *model.Index, limit int) error {
 		fileCount = limit
 	}
 	for i := 0; i < fileCount; i++ {
-		data, err := json.Marshal(idx.Files[i])
+		data, err := json.MarshalIndent(idx.Files[i], "    ", "  ")
 		if err != nil {
 			return err
 		}

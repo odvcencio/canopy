@@ -17,6 +17,7 @@ func newSimilarityCmd() *cobra.Command {
 	var jsonOutput bool
 	var method string
 	var top int
+	var maxFuncs int
 
 	cmd := &cobra.Command{
 		Use:     "similarity <path-a> [path-b]",
@@ -47,7 +48,7 @@ func newSimilarityCmd() *cobra.Command {
 				}
 			}
 
-			pairs, err := similarity.Compare(idxA, idxB, pathA, pathB, threshold, top)
+			pairs, err := similarity.Compare(idxA, idxB, pathA, pathB, threshold, top, maxFuncs)
 			if err != nil {
 				return err
 			}
@@ -100,5 +101,6 @@ func newSimilarityCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().StringVar(&method, "method", "both", "match method: exact|fuzzy|both")
 	cmd.Flags().IntVar(&top, "top", 100, "limit to top N results (0 for all)")
+	cmd.Flags().IntVar(&maxFuncs, "max-funcs", 2000, "max functions per index to compare (0 for all, keeps largest)")
 	return cmd
 }
