@@ -807,12 +807,25 @@ func A() {
 	}
 }
 
+// testFallbackTagsQueries mirrors the fallback queries in pkg/index/builder.go
+// for RE-oriented languages whose grammars lack a standard tags query.
+var testFallbackTagsQueries = map[string]string{
+	"llvm": "(fn_define (function_header name: (global_var) @name)) @definition.function\n" +
+		"(declare (function_header name: (global_var) @name)) @definition.function\n" +
+		"(_ callee: (value (var (global_var) @name))) @reference.call",
+	"asm":         "(label (ident) @name) @definition.function",
+	"disassembly": "(code_location (identifier) @name) @definition.function",
+}
+
 func findEntryByExtension(tb testing.TB, extension string) grammars.LangEntry {
 	tb.Helper()
 	for _, entry := range grammars.AllLanguages() {
 		for _, ext := range entry.Extensions {
 			if ext == extension {
 				entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+				if strings.TrimSpace(entry.TagsQuery) == "" {
+					entry.TagsQuery = testFallbackTagsQueries[entry.Name]
+				}
 				if strings.TrimSpace(entry.TagsQuery) == "" {
 					continue
 				}

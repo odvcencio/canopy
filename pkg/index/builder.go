@@ -70,6 +70,17 @@ func (b *Builder) registerTreesitterParsers() {
 	}
 }
 
+// fallbackTagsQueries provides custom tags queries for languages where
+// gotreesitter's inference produces nothing (typically RE-oriented grammars
+// with non-standard node structures).
+var fallbackTagsQueries = map[string]string{
+	"llvm": "(fn_define (function_header name: (global_var) @name)) @definition.function\n" +
+		"(declare (function_header name: (global_var) @name)) @definition.function\n" +
+		"(_ callee: (value (var (global_var) @name))) @reference.call",
+	"asm":         "(label (ident) @name) @definition.function",
+	"disassembly": "(code_location (identifier) @name) @definition.function",
+}
+
 // lazyParser implements lang.Parser but defers grammar loading and tags-query
 // inference until the first call to Parse. This avoids loading all 200+
 // grammars at NewBuilder time (the root cause of OOM on large repos).
@@ -88,6 +99,9 @@ func (lp *lazyParser) init() {
 	// Infer the tags query on demand (loads the grammar for this one language).
 	entry := lp.entry
 	entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+	if strings.TrimSpace(entry.TagsQuery) == "" {
+		entry.TagsQuery = fallbackTagsQueries[entry.Name]
+	}
 	if strings.TrimSpace(entry.TagsQuery) == "" {
 		lp.err = fmt.Errorf("no tags query available for %q", entry.Name)
 		return
