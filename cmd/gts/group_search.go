@@ -13,6 +13,8 @@ func newSearchGroup() *cobra.Command {
 		newQueryCmd(),
 		newScopeCmd(),
 		newContextCmd(),
+		newSymbolsCmd(),
+		newImportsCmd(),
 	)
 	return cmd
 }

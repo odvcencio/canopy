@@ -13,6 +13,8 @@ func newIndexGroup() *cobra.Command {
 		newFilesCmd(),
 		newStatsCmd(),
 		newDiffCmd(),
+		newErrorsCmd(),
+		newValidateCmd(),
 	)
 	return cmd
 }

@@ -11,6 +11,7 @@ func newTransformGroup() *cobra.Command {
 		newRefactorCmd(),
 		newChunkCmd(),
 		newYaraCmd(),
+		newNormalizeCmd(),
 	)
 	return cmd
 }

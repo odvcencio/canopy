@@ -13,6 +13,8 @@ func newAnalyzeGroup() *cobra.Command {
 		newLintCmd(),
 		newCapaCmd(),
 		newSimilarityCmd(),
+		newDuplicationCmd(),
+		newSummaryCmd(),
 	)
 	return cmd
 }
