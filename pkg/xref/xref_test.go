@@ -1090,3 +1090,112 @@ func TestIncomingOutgoingCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildPolymorphicMethodDispatch(t *testing.T) {
+	// When multiple method_definitions share the same name but have different
+	// receivers (interface implementations), the resolution should create
+	// edges to ALL candidates (polymorphic dispatch) instead of marking
+	// the call as ambiguous.
+	idx := &model.Index{
+		Root: "/tmp/repo",
+		Files: []model.FileSummary{
+			{
+				Path: "handler.go",
+				Symbols: []model.Symbol{
+					{File: "handler.go", Kind: "type_definition", Name: "Logger", StartLine: 3, EndLine: 6},
+					{File: "handler.go", Kind: "type_definition", Name: "StdoutLogger", StartLine: 8, EndLine: 8},
+					{File: "handler.go", Kind: "method_definition", Name: "Log", Receiver: "s *StdoutLogger", StartLine: 10, EndLine: 10},
+					{File: "handler.go", Kind: "type_definition", Name: "FileLogger", StartLine: 12, EndLine: 12},
+					{File: "handler.go", Kind: "method_definition", Name: "Log", Receiver: "f *FileLogger", StartLine: 14, EndLine: 14},
+					{File: "handler.go", Kind: "function_definition", Name: "Handle", StartLine: 16, EndLine: 19},
+				},
+				References: []model.Reference{
+					{File: "handler.go", Kind: "reference.call", Name: "Log", StartLine: 17, EndLine: 17, StartColumn: 2, EndColumn: 5},
+				},
+			},
+		},
+	}
+
+	graph, err := Build(idx)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	// Should have 0 unresolved — the ambiguous method call is resolved polymorphically.
+	if len(graph.Unresolved) != 0 {
+		t.Fatalf("expected 0 unresolved calls, got %d: %+v", len(graph.Unresolved), graph.Unresolved)
+	}
+
+	// Should have 2 edges: Handle -> StdoutLogger.Log and Handle -> FileLogger.Log
+	if len(graph.Edges) != 2 {
+		t.Fatalf("expected 2 poly edges, got %d", len(graph.Edges))
+	}
+
+	receivers := map[string]bool{}
+	for _, e := range graph.Edges {
+		caller := graph.EdgeCaller(e)
+		callee := graph.EdgeCallee(e)
+		if caller.Name != "Handle" {
+			t.Fatalf("expected caller Handle, got %q", caller.Name)
+		}
+		if callee.Name != "Log" {
+			t.Fatalf("expected callee Log, got %q", callee.Name)
+		}
+		if e.Resolution != "poly_file" {
+			t.Fatalf("expected resolution poly_file, got %q", e.Resolution)
+		}
+		receivers[callee.Receiver] = true
+	}
+
+	if !receivers["s *StdoutLogger"] || !receivers["f *FileLogger"] {
+		t.Fatalf("expected both StdoutLogger and FileLogger receivers, got %v", receivers)
+	}
+}
+
+func TestBuildAmbiguousFunctionsNotPolymorphic(t *testing.T) {
+	// Non-method ambiguity (plain functions with same name in different
+	// packages) should still be unresolved — poly dispatch only applies
+	// to method_definitions with receivers.
+	idx := &model.Index{
+		Root: "/tmp/repo",
+		Files: []model.FileSummary{
+			{
+				Path: "x/a.go",
+				Symbols: []model.Symbol{
+					{File: "x/a.go", Kind: "function_definition", Name: "Foo", StartLine: 1, EndLine: 1},
+				},
+			},
+			{
+				Path: "y/b.go",
+				Symbols: []model.Symbol{
+					{File: "y/b.go", Kind: "function_definition", Name: "Foo", StartLine: 1, EndLine: 1},
+				},
+			},
+			{
+				Path: "z/c.go",
+				Symbols: []model.Symbol{
+					{File: "z/c.go", Kind: "function_definition", Name: "Caller", StartLine: 1, EndLine: 3},
+				},
+				References: []model.Reference{
+					{File: "z/c.go", Kind: "reference.call", Name: "Foo", StartLine: 2, EndLine: 2, StartColumn: 2, EndColumn: 5},
+				},
+			},
+		},
+	}
+
+	graph, err := Build(idx)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	// Non-method ambiguity should still be unresolved.
+	if len(graph.Edges) != 0 {
+		t.Fatalf("expected 0 edges for ambiguous non-method calls, got %d", len(graph.Edges))
+	}
+	if len(graph.Unresolved) != 1 {
+		t.Fatalf("expected 1 unresolved call, got %d", len(graph.Unresolved))
+	}
+	if graph.Unresolved[0].Reason != "ambiguous_global" {
+		t.Fatalf("expected reason ambiguous_global, got %q", graph.Unresolved[0].Reason)
+	}
+}

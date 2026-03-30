@@ -223,34 +223,47 @@ func Build(idx *model.Index) (Graph, error) {
 				continue
 			}
 
-			calleeIdx, resolution, reason, candidateCount, ok := resolveCalleeIdx(file.Path, pkg, ref.Name, scope, definitions, callableByFileName, callableByPkgName, callableByName)
-			if !ok {
+			res := resolveCalleeIdx(file.Path, pkg, ref.Name, scope, definitions, callableByFileName, callableByPkgName, callableByName)
+			if !res.ok {
 				callerCopy := definitions[callerIdx]
-				unresolved = append(unresolved, unresolvedFromRef(file.Path, pkg, ref, &callerCopy, reason, candidateCount))
+				unresolved = append(unresolved, unresolvedFromRef(file.Path, pkg, ref, &callerCopy, res.reason, res.candidateCount))
 				continue
 			}
 
-			pairKey := keyPair(definitions[callerIdx].ID, definitions[calleeIdx].ID)
-			edge, exists := edgeByPair[pairKey]
-			if !exists {
-				edge = &internalEdge{
-					callerIdx:  callerIdx,
-					calleeIdx:  calleeIdx,
-					resolution: resolution,
-					count:      0,
-					samples:    make([]CallSample, 0, 3),
-				}
-				edgeByPair[pairKey] = edge
+			sample := CallSample{
+				File:        file.Path,
+				StartLine:   ref.StartLine,
+				StartColumn: ref.StartColumn,
+				Kind:        ref.Kind,
+				Name:        ref.Name,
 			}
-			edge.count++
-			if len(edge.samples) < 3 {
-				edge.samples = append(edge.samples, CallSample{
-					File:        file.Path,
-					StartLine:   ref.StartLine,
-					StartColumn: ref.StartColumn,
-					Kind:        ref.Kind,
-					Name:        ref.Name,
-				})
+
+			// Polymorphic dispatch: create edges to ALL candidate methods.
+			calleeIndices := res.candidates
+			resolution := res.resolution
+			if len(calleeIndices) == 0 {
+				calleeIndices = []int{res.idx}
+			} else {
+				resolution = "poly_" + res.polyScope
+			}
+
+			for _, calleeIdx := range calleeIndices {
+				pairKey := keyPair(definitions[callerIdx].ID, definitions[calleeIdx].ID)
+				edge, exists := edgeByPair[pairKey]
+				if !exists {
+					edge = &internalEdge{
+						callerIdx:  callerIdx,
+						calleeIdx:  calleeIdx,
+						resolution: resolution,
+						count:      0,
+						samples:    make([]CallSample, 0, 3),
+					}
+					edgeByPair[pairKey] = edge
+				}
+				edge.count++
+				if len(edge.samples) < 3 {
+					edge.samples = append(edge.samples, sample)
+				}
 			}
 		}
 	}
@@ -473,6 +486,21 @@ func (g *Graph) Walk(rootIDs []string, depth int, reverse bool) Walk {
 	}
 }
 
+// calleeResolution holds the result of callee resolution.
+type calleeResolution struct {
+	// Single-target resolution (unique match).
+	idx        int
+	resolution string
+
+	// Multi-target resolution (polymorphic dispatch).
+	candidates []int
+	polyScope  string // resolution scope for the polymorphic candidates
+
+	reason         string
+	candidateCount int
+	ok             bool
+}
+
 // resolveCalleeIdx resolves a callee by name using index-based lookups,
 // returning the index into the definitions slice.
 func resolveCalleeIdx(
@@ -482,36 +510,61 @@ func resolveCalleeIdx(
 	callableByFileName map[string][]int,
 	callableByPkgName map[string][]int,
 	callableByName map[string][]int,
-) (int, string, string, int, bool) {
+) calleeResolution {
 	if candidates := uniqueDefIndices(definitions, callableByFileName[keyFileName(filePath, name)]); len(candidates) > 0 {
 		if len(candidates) == 1 {
-			return candidates[0], "file", "", 1, true
+			return calleeResolution{idx: candidates[0], resolution: "file", ok: true}
 		}
-		return -1, "", "ambiguous_file", len(candidates), false
+		if allMethods(definitions, candidates) {
+			return calleeResolution{candidates: candidates, polyScope: "file", ok: true}
+		}
+		return calleeResolution{reason: "ambiguous_file", candidateCount: len(candidates)}
 	}
 
 	if candidates := candidatesByImportScopeIdx(definitions, uniqueDefIndices(definitions, callableByName[name]), scope); len(candidates) > 0 {
 		if len(candidates) == 1 {
-			return candidates[0], "import", "", 1, true
+			return calleeResolution{idx: candidates[0], resolution: "import", ok: true}
 		}
-		return -1, "", "ambiguous_import", len(candidates), false
+		if allMethods(definitions, candidates) {
+			return calleeResolution{candidates: candidates, polyScope: "import", ok: true}
+		}
+		return calleeResolution{reason: "ambiguous_import", candidateCount: len(candidates)}
 	}
 
 	if candidates := uniqueDefIndices(definitions, callableByPkgName[keyPackageName(pkg, name)]); len(candidates) > 0 {
 		if len(candidates) == 1 {
-			return candidates[0], "package", "", 1, true
+			return calleeResolution{idx: candidates[0], resolution: "package", ok: true}
 		}
-		return -1, "", "ambiguous_package", len(candidates), false
+		if allMethods(definitions, candidates) {
+			return calleeResolution{candidates: candidates, polyScope: "package", ok: true}
+		}
+		return calleeResolution{reason: "ambiguous_package", candidateCount: len(candidates)}
 	}
 
 	if candidates := uniqueDefIndices(definitions, callableByName[name]); len(candidates) > 0 {
 		if len(candidates) == 1 {
-			return candidates[0], "global", "", 1, true
+			return calleeResolution{idx: candidates[0], resolution: "global", ok: true}
 		}
-		return -1, "", "ambiguous_global", len(candidates), false
+		if allMethods(definitions, candidates) {
+			return calleeResolution{candidates: candidates, polyScope: "global", ok: true}
+		}
+		return calleeResolution{reason: "ambiguous_global", candidateCount: len(candidates)}
 	}
 
-	return -1, "", "not_found", 0, false
+	return calleeResolution{reason: "not_found"}
+}
+
+// allMethods returns true if every candidate is a method_definition with a
+// non-empty receiver, indicating the ambiguity comes from polymorphic dispatch
+// (multiple types implementing the same method name).
+func allMethods(definitions []Definition, candidates []int) bool {
+	for _, ci := range candidates {
+		def := &definitions[ci]
+		if def.Kind != "method_definition" || def.Receiver == "" {
+			return false
+		}
+	}
+	return len(candidates) > 0
 }
 
 func unresolvedFromRef(filePath, pkg string, ref model.Reference, caller *Definition, reason string, candidateCount int) UnresolvedCall {
