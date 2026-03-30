@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,15 +82,7 @@ func Analyze(idx *model.Index, opts Options) (*Report, error) {
 		// If git fails (not a repo, etc.), proceed with zero churn.
 		rawChurn = map[string]FileChurn{}
 	}
-	// Normalize churn map keys: git returns paths relative to repo root
-	// (e.g. "internal/service/pr.go") but the index uses paths relative to
-	// the scan root (e.g. "pr.go"). Strip the scan root prefix so keys match.
-	churnMap := make(map[string]FileChurn, len(rawChurn))
-	cleanRoot := strings.TrimSuffix(strings.TrimSuffix(root, "/"), "\\") + "/"
-	for path, churn := range rawChurn {
-		key := strings.TrimPrefix(path, cleanRoot)
-		churnMap[key] = churn
-	}
+	churnMap := normalizeChurnMap(rawChurn, root, resolveGitRoot(root))
 
 	// Build hotspot entries from complexity data.
 	hotspots := make([]FunctionHotspot, 0, len(compReport.Functions))
@@ -142,6 +135,51 @@ func Analyze(idx *model.Index, opts Options) (*Report, error) {
 		Functions: hotspots,
 		Count:     len(hotspots),
 	}, nil
+}
+
+func normalizeChurnMap(raw map[string]FileChurn, scanRoot string, gitRoot string) map[string]FileChurn {
+	if len(raw) == 0 {
+		return map[string]FileChurn{}
+	}
+
+	absScanRoot := scanRoot
+	if abs, err := filepath.Abs(scanRoot); err == nil {
+		absScanRoot = abs
+	}
+
+	scanPrefix := ""
+	if gitRoot != "" {
+		if rel, err := filepath.Rel(gitRoot, absScanRoot); err == nil && rel != "." {
+			scanPrefix = filepath.ToSlash(filepath.Clean(rel))
+		}
+	}
+
+	absScanRoot = filepath.ToSlash(filepath.Clean(absScanRoot))
+	out := make(map[string]FileChurn, len(raw))
+	for path, churn := range raw {
+		key := filepath.ToSlash(filepath.Clean(path))
+		key = trimChurnPrefix(key, scanPrefix)
+		key = trimChurnPrefix(key, absScanRoot)
+		key = strings.TrimPrefix(key, "./")
+		out[key] = churn
+	}
+	return out
+}
+
+func trimChurnPrefix(path string, prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return path
+	}
+	prefix = filepath.ToSlash(filepath.Clean(prefix))
+	switch {
+	case path == prefix:
+		return "."
+	case strings.HasPrefix(path, prefix+"/"):
+		return strings.TrimPrefix(path, prefix+"/")
+	default:
+		return path
+	}
 }
 
 // GitChurn parses git log output to compute per-file churn metrics.

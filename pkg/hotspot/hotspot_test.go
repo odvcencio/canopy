@@ -133,6 +133,25 @@ func TestAnalyzeNilIndex(t *testing.T) {
 	}
 }
 
+func TestNormalizeChurnMapSubdirScanRoot(t *testing.T) {
+	raw := map[string]FileChurn{
+		"testdata/mini-estate/ACCT0001.cbl": {Commits: 4, Authors: 1},
+		"testdata/mini-estate/ACCT0100.cbl": {Commits: 2, Authors: 1},
+	}
+
+	got := normalizeChurnMap(raw, "/repo/testdata/mini-estate", "/repo")
+
+	if _, ok := got["testdata/mini-estate/ACCT0001.cbl"]; ok {
+		t.Fatalf("normalizeChurnMap(...) kept repo-relative path, want scan-root-relative keys: %#v", got)
+	}
+	if churn := got["ACCT0001.cbl"]; churn.Commits != 4 || churn.Authors != 1 {
+		t.Fatalf("normalizeChurnMap(...) ACCT0001.cbl = %#v, want commits=4 authors=1", churn)
+	}
+	if churn := got["ACCT0100.cbl"]; churn.Commits != 2 || churn.Authors != 1 {
+		t.Fatalf("normalizeChurnMap(...) ACCT0100.cbl = %#v, want commits=2 authors=1", churn)
+	}
+}
+
 func TestRankChurn(t *testing.T) {
 	hotspots := []FunctionHotspot{
 		{Commits: 1, Authors: 1},
