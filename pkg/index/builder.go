@@ -343,6 +343,12 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		}
 
 		summary, parseErr := parser.Parse(file.Path, file.Source)
+
+		// Run generated-file detection before Close(), which nils Source.
+		var genInfo *model.GeneratedInfo
+		if b.detector != nil {
+			genInfo = b.detector.Detect(relPath, file.Source)
+		}
 		file.Close()
 
 		if parseErr != nil {
@@ -377,9 +383,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 			summary.References[i].File = relPath
 		}
 
-		if b.detector != nil {
-			summary.Generated = b.detector.Detect(relPath, file.Source)
-		}
+		summary.Generated = genInfo
 
 		delete(errorsByPath, relPath)
 		filesByPath[relPath] = summary
