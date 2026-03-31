@@ -17,11 +17,12 @@ type Options struct {
 }
 
 type Entry struct {
-	Path      string `json:"path"`
-	Language  string `json:"language"`
-	Symbols   int    `json:"symbols"`
-	Imports   int    `json:"imports"`
-	SizeBytes int64  `json:"size_bytes,omitempty"`
+	Path      string              `json:"path"`
+	Language  string              `json:"language"`
+	Symbols   int                 `json:"symbols"`
+	Imports   int                 `json:"imports"`
+	SizeBytes int64               `json:"size_bytes,omitempty"`
+	Generated *model.GeneratedInfo `json:"generated,omitempty"`
 }
 
 type Report struct {
@@ -67,6 +68,7 @@ func Build(idx *model.Index, opts Options) (Report, error) {
 			Symbols:   len(file.Symbols),
 			Imports:   len(file.Imports),
 			SizeBytes: file.SizeBytes,
+			Generated: file.Generated,
 		})
 	}
 

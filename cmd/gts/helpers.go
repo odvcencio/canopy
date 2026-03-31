@@ -29,7 +29,11 @@ func loadOrBuild(cachePath string, target string, noCache bool) (*model.Index, e
 			}
 		}
 	}
-	return index.NewBuilder().BuildPath(target)
+	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
+	if err != nil {
+		return nil, err
+	}
+	return builder.BuildPath(target)
 }
 
 func emitJSON(value any) error {

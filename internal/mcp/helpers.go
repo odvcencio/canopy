@@ -26,7 +26,10 @@ func (s *Service) loadOrBuild(cachePath string, target string) (*model.Index, er
 			return idx, nil
 		}
 	}
-	builder := index.NewBuilder()
+	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
+	if err != nil {
+		return nil, err
+	}
 	return builder.BuildPath(target)
 }
 
@@ -47,7 +50,10 @@ func (s *Service) loadIndexFromSource(pathArg, cacheArg string) (*model.Index, e
 			return idx, nil
 		}
 	}
-	builder := index.NewBuilder()
+	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
+	if err != nil {
+		return nil, err
+	}
 	return builder.BuildPath(target)
 }
 

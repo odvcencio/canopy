@@ -33,13 +33,14 @@ type FileMetric struct {
 }
 
 type Report struct {
-	Root            string          `json:"root"`
-	FileCount       int             `json:"file_count"`
-	SymbolCount     int             `json:"symbol_count"`
-	ParseErrorCount int             `json:"parse_error_count"`
-	KindCounts      []KindCount     `json:"kind_counts,omitempty"`
-	Languages       []LanguageCount `json:"languages,omitempty"`
-	TopFiles        []FileMetric    `json:"top_files,omitempty"`
+	Root               string          `json:"root"`
+	FileCount          int             `json:"file_count"`
+	GeneratedFileCount int             `json:"generated_file_count"`
+	SymbolCount        int             `json:"symbol_count"`
+	ParseErrorCount    int             `json:"parse_error_count"`
+	KindCounts         []KindCount     `json:"kind_counts,omitempty"`
+	Languages          []LanguageCount `json:"languages,omitempty"`
+	TopFiles           []FileMetric    `json:"top_files,omitempty"`
 }
 
 func Build(idx *model.Index, opts Options) (Report, error) {
@@ -121,13 +122,14 @@ func Build(idx *model.Index, opts Options) (Report, error) {
 	}
 
 	report := Report{
-		Root:            idx.Root,
-		FileCount:       len(idx.Files),
-		SymbolCount:     idx.SymbolCount(),
-		ParseErrorCount: len(idx.Errors),
-		KindCounts:      kindList,
-		Languages:       languageList,
-		TopFiles:        fileMetrics,
+		Root:               idx.Root,
+		FileCount:          len(idx.Files),
+		GeneratedFileCount: idx.GeneratedFileCount(),
+		SymbolCount:        idx.SymbolCount(),
+		ParseErrorCount:    len(idx.Errors),
+		KindCounts:         kindList,
+		Languages:          languageList,
+		TopFiles:           fileMetrics,
 	}
 	return report, nil
 }
