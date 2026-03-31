@@ -25,15 +25,23 @@ type Reference struct {
 	EndColumn   int    `json:"end_column,omitempty"`
 }
 
+// GeneratedInfo describes why a file is considered generated and what produced it.
+type GeneratedInfo struct {
+	Generator string `json:"generator"`        // e.g. "protobuf", "sqlc", "antlr", "unknown"
+	Reason    string `json:"reason"`           // how it was detected: "marker", "filename", "config"
+	Marker    string `json:"marker,omitempty"` // the actual matched text
+}
+
 // FileSummary contains the structural analysis of a single source file.
 type FileSummary struct {
-	Path            string      `json:"path"`
-	Language        string      `json:"language"`
-	SizeBytes       int64       `json:"size_bytes,omitempty"`
-	ModTimeUnixNano int64       `json:"mod_time_unix_nano,omitempty"`
-	Imports         []string    `json:"imports,omitempty"`
-	Symbols         []Symbol    `json:"symbols,omitempty"`
-	References      []Reference `json:"references,omitempty"`
+	Path            string         `json:"path"`
+	Language        string         `json:"language"`
+	SizeBytes       int64          `json:"size_bytes,omitempty"`
+	ModTimeUnixNano int64          `json:"mod_time_unix_nano,omitempty"`
+	Imports         []string       `json:"imports,omitempty"`
+	Symbols         []Symbol       `json:"symbols,omitempty"`
+	References      []Reference    `json:"references,omitempty"`
+	Generated       *GeneratedInfo `json:"generated,omitempty"`
 }
 
 // ParseError records a file that failed to parse.
@@ -83,4 +91,33 @@ func (idx *Index) ReferenceCount() int {
 		total += len(file.References)
 	}
 	return total
+}
+
+// GeneratedFileCount returns the number of files tagged as generated.
+func (idx *Index) GeneratedFileCount() int {
+	if idx == nil {
+		return 0
+	}
+	count := 0
+	for _, f := range idx.Files {
+		if f.Generated != nil {
+			count++
+		}
+	}
+	return count
+}
+
+// WithoutGenerated returns a shallow copy of the index with generated files removed.
+func (idx *Index) WithoutGenerated() *Index {
+	if idx == nil {
+		return nil
+	}
+	filtered := *idx
+	filtered.Files = make([]FileSummary, 0, len(idx.Files))
+	for _, f := range idx.Files {
+		if f.Generated == nil {
+			filtered.Files = append(filtered.Files, f)
+		}
+	}
+	return &filtered
 }
