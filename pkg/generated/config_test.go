@@ -58,3 +58,30 @@ func TestLoadConfigFile_NotExist(t *testing.T) {
 		t.Fatalf("expected 0 entries, got %d", len(entries))
 	}
 }
+
+func TestParseConfigLinesWithOptions_ScanDepth(t *testing.T) {
+	lines := []string{"@scan-depth 60", "protobuf: api/**/*.pb.go"}
+	entries, scanDepth := ParseConfigLinesWithOptions(lines)
+	if scanDepth != 60 {
+		t.Errorf("expected 60, got %d", scanDepth)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestParseConfigLinesWithOptions_InvalidScanDepth(t *testing.T) {
+	lines := []string{"@scan-depth abc", "@scan-depth -5", "@scan-depth 0"}
+	_, scanDepth := ParseConfigLinesWithOptions(lines)
+	if scanDepth != 0 {
+		t.Errorf("expected 0, got %d", scanDepth)
+	}
+}
+
+func TestParseConfigLinesWithOptions_ClampedScanDepth(t *testing.T) {
+	lines := []string{"@scan-depth 999"}
+	_, scanDepth := ParseConfigLinesWithOptions(lines)
+	if scanDepth != 200 {
+		t.Errorf("expected 200, got %d", scanDepth)
+	}
+}

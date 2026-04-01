@@ -30,6 +30,7 @@ type ConfigEntry struct {
 type Detector struct {
 	configs         []ConfigEntry
 	compiledMarkers []compiledSignature
+	scanDepth       int
 }
 
 type compiledSignature struct {
@@ -39,9 +40,13 @@ type compiledSignature struct {
 }
 
 // NewDetector creates a Detector with the given user config entries (may be nil)
-// and the built-in registry.
-func NewDetector(configs []ConfigEntry) *Detector {
+// and the built-in registry. An optional scan depth overrides the default
+// maxScanLines when scanning file headers for generation markers.
+func NewDetector(configs []ConfigEntry, scanDepth ...int) *Detector {
 	d := &Detector{configs: configs}
+	if len(scanDepth) > 0 && scanDepth[0] > 0 {
+		d.scanDepth = scanDepth[0]
+	}
 	for _, sig := range builtinRegistry {
 		cs := compiledSignature{
 			generator: sig.Generator,
@@ -105,7 +110,11 @@ func (d *Detector) Detect(relPath string, source []byte) *model.GeneratedInfo {
 		return nil
 	}
 
-	header := extractHeader(source, maxScanLines)
+	depth := maxScanLines
+	if d.scanDepth > 0 {
+		depth = d.scanDepth
+	}
+	header := extractHeader(source, depth)
 	for _, cs := range d.compiledMarkers {
 		for _, re := range cs.markers {
 			if loc := re.Find(header); loc != nil {

@@ -120,13 +120,14 @@ func ComputeConfigHashes(target string) (map[string]string, error) {
 }
 
 // LoadWorkspaceGeneratedConfig finds the workspace root and loads .gtsgenerated
-// config entries. Returns nil entries (no error) when the file is absent.
-func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, error) {
+// config entries along with any configured scan depth. Returns nil entries (no
+// error) when the file is absent.
+func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, int, error) {
 	root, err := workspaceIgnoreRoot(target)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return generated.LoadConfigFile(filepath.Join(root, ".gtsgenerated"))
+	return generated.LoadConfigFileWithOptions(filepath.Join(root, ".gtsgenerated"))
 }
 
 // NewBuilderWithWorkspaceIgnores creates a Builder pre-configured with ignore
@@ -141,11 +142,11 @@ func NewBuilderWithWorkspaceIgnores(target string) (*Builder, error) {
 	if matcher != nil {
 		builder.SetIgnore(matcher)
 	}
-	configs, err := LoadWorkspaceGeneratedConfig(target)
+	configs, scanDepth, err := LoadWorkspaceGeneratedConfig(target)
 	if err != nil {
 		return nil, err
 	}
-	builder.SetDetector(generated.NewDetector(configs))
+	builder.SetDetector(generated.NewDetector(configs, scanDepth))
 
 	hashes, err := ComputeConfigHashes(target)
 	if err != nil {

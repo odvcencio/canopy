@@ -12,7 +12,7 @@ func TestLoadWorkspaceGeneratedConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".gtsgenerated"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := LoadWorkspaceGeneratedConfig(root)
+	entries, _, err := LoadWorkspaceGeneratedConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestLoadWorkspaceGeneratedConfig(t *testing.T) {
 
 func TestLoadWorkspaceGeneratedConfig_NoFile(t *testing.T) {
 	root := t.TempDir()
-	entries, err := LoadWorkspaceGeneratedConfig(root)
+	entries, _, err := LoadWorkspaceGeneratedConfig(root)
 	if err != nil {
 		t.Fatal(err)
 	}
