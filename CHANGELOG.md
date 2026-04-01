@@ -6,6 +6,62 @@ All notable changes to this project are documented in this file.
 
 - Nothing yet.
 
+## [0.14.0] - 2026-04-01
+
+Enterprise-grade structural analysis. Six feature phases adding architecture governance, security intelligence, CI/CD integration, multi-repo federation, AI agent enhancement, and executive reporting.
+
+### Added
+
+#### Architecture Governance (Phase 1)
+- **`gts analyze boundaries`** — enforce module boundary rules from `.gtsboundaries` config. Supports allow/deny rules with glob patterns, diff-aware `--base` filtering, SARIF output, and MCP tool `gts_boundaries`.
+- **`.gtsboundaries` config file** — line-oriented DSL for declaring allowed import relationships between modules.
+- **`gts graph drift`** — compare dependency graphs between two git refs via temporary worktrees. Reports added/removed imports and new cycles. MCP tool `gts_drift`.
+- **`.gtslint` scoped overrides** — `fan_out > 10 in pkg/* -> warn "high fan-out"` applies rules only to matching paths.
+- **`.gtslint` package-level rules** — `package import_depth > 5 -> error "too deep"`, `package exported_symbols > 50 in pkg/*`, `package no_import_cycles`. New evaluation pathway for package-granularity metrics.
+- **`.gtslint` config loading in `check` and `lint`** — both commands now load `.gtslint` and apply threshold overrides and ignore rules. CLI flags take precedence when explicitly set.
+
+#### Security & Compliance (Phase 2)
+- **`gts analyze reachability`** — supply chain analysis answering "does package X transitively reach capability Y?" via xref call graph traversal. Filterable by capability category and MITRE ATT&CK technique. MCP tool `gts_reachability`.
+- **Secrets-in-AST detection** — built-in tree-sitter query patterns for Go, JS/TS, and Python that detect hardcoded secrets (password, token, api_key, etc. assigned to string literals). Ships as default lint rules.
+- **`gts transform sbom`** — CycloneDX 1.5 SBOM generation from structural index. Resolves versions from `go.mod`, `package.json`, `requirements.txt`. Optional capability enrichment via `--include-capabilities`. MCP tool `gts_sbom`.
+- **`gts analyze licenses`** — dependency license detection via manifest scanning and vendored LICENSE file header matching. 11 SPDX patterns (MIT, Apache-2.0, GPL, BSD, etc.). Configurable deny list via `.gtslint` (`license deny GPL-3.0 -> error "copyleft"`). MCP tool `gts_licenses`.
+
+#### CI/CD Integration (Phase 3)
+- **`pkg/sarif`** — SARIF 2.1.0 encoder for GitHub Advanced Security integration. No external dependencies.
+- **`--format sarif`** on `analyze check`, `analyze boundaries`, `analyze lint` — upload results directly to GitHub code scanning.
+- **`--format` flag migration** — new commands use `--format text|json|sarif`. Existing `--json` flag preserved as backward-compatible alias.
+- **`gts init`** — guided project setup: detects languages, generates `.gtsignore`, `.gtsgenerated`, `.gtsboundaries` skeletons. `gts init ci` generates `.github/workflows/gts-check.yml` for GitHub Actions.
+- **`gts analyze trends record`** — append quality metrics snapshot to `.gts/trends.jsonl` (cyclomatic max, cognitive max, violations, function/file counts).
+- **`gts analyze trends show`** — display metric trends with percentage deltas. Supports `--since` date filtering and `--json` output.
+
+#### Multi-Repo Federation (Phase 4)
+- **`gts index export`** — export structural index to portable gzipped `.gtsindex` file with repo metadata (URL, commit SHA, timestamp). Auto-detects git remote and HEAD.
+- **`gts index import`** — load and summarize exported indexes.
+- **`--federation <dir>` global flag** — point at a directory of `.gtsindex` files to enable cross-repo analysis on federation-safe commands.
+- **`internal/federation`** — index merging with repo-prefixed paths, module detection, service graph construction.
+- **`gts graph services`** — build repo-to-repo dependency graph from federated indexes. Supports `--dot` for Graphviz output. MCP tool `gts_services`.
+
+#### AI Agent Enhancement (Phase 5)
+- **`gts_guardrails` MCP tool** — file-level advisory for agents: generated status, boundary module, complexity scores, hotspot flag, fan-in warnings. Agents call this before editing files.
+- **`--concept` flag on `search context`** — concept-aware context packing. Searches symbol names and paths for a concept, traces call chains, packs results within token budget.
+- **`gts analyze review`** — aggregated PR review report: complexity delta, boundary violations, new capabilities, blast radius for changed files. MCP tool `gts_review`.
+- **`--format embeddings` on `transform chunk`** — RAG-optimized JSONL output with metadata (file, language, symbols, complexity) per chunk for vector DB ingestion.
+
+#### Reporting & Developer Experience (Phase 6)
+- **`gts analyze report`** — executive summary aggregating all analyses: codebase overview, complexity distribution, architecture health, security posture, dead code, hotspots. Supports `--format markdown|json`, `--compare <ref>` for delta reporting, `--by-team` for CODEOWNERS-based team breakdown. MCP tool `gts_report`.
+
+### Summary
+
+| Category | Count |
+|----------|-------|
+| New commands | 12 |
+| New MCP tools | 9 |
+| New packages | 4 (`pkg/sarif`, `pkg/boundaries`, `internal/reachability`, `internal/federation`) |
+| New config files | `.gtsboundaries` |
+| Extended config | `.gtslint` (scoped rules, package rules, license rules) |
+| New global flags | `--federation`, `--format` |
+| New external dependencies | 0 |
+
 ## [0.13.1] - 2026-04-01
 
 ### Changed
