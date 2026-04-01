@@ -9,10 +9,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
+	"github.com/odvcencio/gts-suite/internal/deps"
 	"github.com/odvcencio/gts-suite/pkg/complexity"
 	"github.com/odvcencio/gts-suite/pkg/model"
 	"github.com/odvcencio/gts-suite/pkg/xref"
@@ -58,6 +61,7 @@ type ThresholdRule struct {
 	Threshold int    `json:"threshold"`
 	Severity  string `json:"severity"`
 	Message   string `json:"message"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 // DefaultRules is the built-in set of threshold-based lint rules.
@@ -93,6 +97,12 @@ func EvaluateThresholds(idx *model.Index, rules []ThresholdRule) ([]Violation, e
 	violations := make([]Violation, 0, 32)
 	for _, fn := range report.Functions {
 		for _, rule := range rules {
+			if rule.Scope != "" {
+				fnPkg := filepath.ToSlash(filepath.Dir(fn.File))
+				if !matchPkgGlob(rule.Scope, fnPkg) {
+					continue
+				}
+			}
 			value, ok := thresholdMetricValue(fn, rule.Metric)
 			if !ok {
 				continue
@@ -491,6 +501,183 @@ func compactPatternText(text string) string {
 		return trimmed
 	}
 	return trimmed[:maxLen] + "..."
+}
+
+// EvaluatePackageRules checks package-level metrics against the given rules.
+// It supports exported_symbols, import_depth, and no_import_cycles metrics.
+func EvaluatePackageRules(idx *model.Index, rules []PackageRule, depsEdges []deps.Edge) ([]Violation, error) {
+	if idx == nil || len(rules) == 0 {
+		return nil, nil
+	}
+
+	violations := make([]Violation, 0, 16)
+
+	for _, rule := range rules {
+		switch rule.Metric {
+		case "exported_symbols":
+			pkgFiles := groupByPackage(idx)
+			for pkg, files := range pkgFiles {
+				if rule.Scope != "" && !matchPkgGlob(rule.Scope, pkg) {
+					continue
+				}
+				count := countExportedSymbols(files)
+				if count > rule.Threshold {
+					violations = append(violations, Violation{
+						RuleID:   "package/" + rule.Metric,
+						File:     pkg,
+						Kind:     "package",
+						Name:     pkg,
+						Message:  fmt.Sprintf("%s (%s=%d, threshold=%d)", rule.Message, rule.Metric, count, rule.Threshold),
+						Severity: rule.Severity,
+						Value:    count,
+					})
+				}
+			}
+
+		case "import_depth":
+			depths := computeImportDepths(depsEdges)
+			for pkg, depth := range depths {
+				if rule.Scope != "" && !matchPkgGlob(rule.Scope, pkg) {
+					continue
+				}
+				if depth > rule.Threshold {
+					violations = append(violations, Violation{
+						RuleID:   "package/" + rule.Metric,
+						File:     pkg,
+						Kind:     "package",
+						Name:     pkg,
+						Message:  fmt.Sprintf("%s (%s=%d, threshold=%d)", rule.Message, rule.Metric, depth, rule.Threshold),
+						Severity: rule.Severity,
+						Value:    depth,
+					})
+				}
+			}
+
+		case "no_import_cycles":
+			graph := deps.GraphFromEdges(depsEdges)
+			cycles := deps.DetectCycles(graph)
+			for _, cycle := range cycles {
+				// Use the first node in the cycle path as the representative package.
+				pkg := ""
+				if len(cycle.Path) > 0 {
+					pkg = cycle.Path[0]
+				}
+				if rule.Scope != "" && !matchPkgGlob(rule.Scope, pkg) {
+					continue
+				}
+				violations = append(violations, Violation{
+					RuleID:   "package/" + rule.Metric,
+					File:     pkg,
+					Kind:     "package",
+					Name:     pkg,
+					Message:  fmt.Sprintf("%s: %s", rule.Message, strings.Join(cycle.Path, " -> ")),
+					Severity: rule.Severity,
+				})
+			}
+		}
+	}
+
+	sortViolations(violations)
+	return violations, nil
+}
+
+// groupByPackage groups files by their directory (package path).
+func groupByPackage(idx *model.Index) map[string][]model.FileSummary {
+	result := make(map[string][]model.FileSummary)
+	for _, file := range idx.Files {
+		pkg := filepath.ToSlash(filepath.Dir(file.Path))
+		result[pkg] = append(result[pkg], file)
+	}
+	return result
+}
+
+// countExportedSymbols counts symbols with exported names (uppercase first letter).
+func countExportedSymbols(files []model.FileSummary) int {
+	count := 0
+	for _, file := range files {
+		for _, sym := range file.Symbols {
+			if isExported(sym.Name) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// isExported returns true if the name starts with an uppercase letter (Go convention).
+func isExported(name string) bool {
+	r, _ := utf8.DecodeRuneInString(name)
+	return r != utf8.RuneError && unicode.IsUpper(r)
+}
+
+// matchPkgGlob matches a package path against a glob pattern.
+// Supports exact match, "prefix/*" (matches anything under prefix/), and "*"/"**" (matches all).
+func matchPkgGlob(pattern, pkg string) bool {
+	if pattern == "" {
+		return false
+	}
+	if pattern == "*" || pattern == "**" {
+		return true
+	}
+	if strings.HasSuffix(pattern, "/*") {
+		prefix := pattern[:len(pattern)-1] // keep trailing slash: "pkg/"
+		return strings.HasPrefix(pkg, prefix)
+	}
+	return pattern == pkg
+}
+
+// computeImportDepths computes the longest import chain depth for each package
+// using BFS from root nodes (nodes with no incoming internal edges).
+func computeImportDepths(edges []deps.Edge) map[string]int {
+	// Build adjacency and track incoming edges (internal only).
+	outgoing := make(map[string][]string)
+	incoming := make(map[string]int)
+	allNodes := make(map[string]bool)
+
+	for _, edge := range edges {
+		if !edge.Internal {
+			continue
+		}
+		allNodes[edge.From] = true
+		allNodes[edge.To] = true
+		outgoing[edge.From] = append(outgoing[edge.From], edge.To)
+		incoming[edge.To]++
+	}
+	// Ensure nodes with no incoming edges are tracked.
+	for node := range allNodes {
+		if _, ok := incoming[node]; !ok {
+			incoming[node] = 0
+		}
+	}
+
+	// BFS from root nodes (no incoming edges).
+	depths := make(map[string]int)
+	type queueItem struct {
+		node  string
+		depth int
+	}
+	queue := make([]queueItem, 0, len(allNodes))
+	for node := range allNodes {
+		if incoming[node] == 0 {
+			queue = append(queue, queueItem{node: node, depth: 0})
+			depths[node] = 0
+		}
+	}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		for _, next := range outgoing[current.node] {
+			newDepth := current.depth + 1
+			if existing, ok := depths[next]; !ok || newDepth > existing {
+				depths[next] = newDepth
+				queue = append(queue, queueItem{node: next, depth: newDepth})
+			}
+		}
+	}
+
+	return depths
 }
 
 func sortViolations(violations []Violation) {
