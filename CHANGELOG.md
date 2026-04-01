@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 - Nothing yet.
 
+## [0.13.1] - 2026-04-01
+
+### Changed
+- **Codebase passes its own quality gate.** Refactored all functions that exceeded complexity thresholds: `newIndexBuildCmd` (cyc 55→38), `BuildPathIncrementalWithOptions` (cyc 51→36, cog 81→65), `renameDeclarationsTreeSitter` (cog 107→78), `newQueryCmd` (cog 85→52), `Tools` (379→70 lines). Max cyclomatic dropped from 55 to 38, max cognitive from 107 to 78.
+- Split `internal/mcp/service.go` `Tools()` into domain-grouped helpers: `searchTools()`, `graphTools()`, `analyzeTools()`, `transformTools()`.
+
 ## [0.13.0] - 2026-04-01
 
 ### Added
