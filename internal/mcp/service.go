@@ -478,6 +478,18 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_report",
+			Description: "Executive summary report aggregating all analyses: complexity, boundaries, import cycles, capabilities, dead code, hotspots",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_review",
 			Description: "Aggregate review report for changed files: complexity, boundary violations, capabilities, blast radius",
 			InputSchema: Schema{
@@ -684,6 +696,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callSBOM(args)
 	case "gts_guardrails":
 		return s.callGuardrails(args)
+	case "gts_report":
+		return s.callReport(args)
 	case "gts_review":
 		return s.callReview(args)
 	case "gts_services":
