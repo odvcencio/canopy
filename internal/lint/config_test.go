@@ -321,6 +321,151 @@ func TestLoadConfig_NoConfigFile(t *testing.T) {
 	}
 }
 
+// --- Task 5: Scoped Override tests ---
+
+func TestParseConfig_ScopedOverride(t *testing.T) {
+	content := `fan_out > 10 in pkg/* -> warn "high fan-out"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.Overrides) != 1 {
+		t.Fatalf("expected 1 override, got %d", len(cfg.Overrides))
+	}
+	o := cfg.Overrides[0]
+	if o.Metric != "fan_out" {
+		t.Errorf("metric = %q, want %q", o.Metric, "fan_out")
+	}
+	if o.Threshold != 10 {
+		t.Errorf("threshold = %d, want 10", o.Threshold)
+	}
+	if o.Scope != "pkg/*" {
+		t.Errorf("scope = %q, want %q", o.Scope, "pkg/*")
+	}
+	if o.Severity != "warn" {
+		t.Errorf("severity = %q, want %q", o.Severity, "warn")
+	}
+	if o.Message != "high fan-out" {
+		t.Errorf("message = %q, want %q", o.Message, "high fan-out")
+	}
+}
+
+func TestParseConfig_ScopedOverrideWithUnicode(t *testing.T) {
+	content := `cognitive > 30 in internal/* → error "too complex"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.Overrides) != 1 {
+		t.Fatalf("expected 1 override, got %d", len(cfg.Overrides))
+	}
+	o := cfg.Overrides[0]
+	if o.Metric != "cognitive" {
+		t.Errorf("metric = %q, want %q", o.Metric, "cognitive")
+	}
+	if o.Threshold != 30 {
+		t.Errorf("threshold = %d, want 30", o.Threshold)
+	}
+	if o.Scope != "internal/*" {
+		t.Errorf("scope = %q, want %q", o.Scope, "internal/*")
+	}
+	if o.Severity != "error" {
+		t.Errorf("severity = %q, want %q", o.Severity, "error")
+	}
+	if o.Message != "too complex" {
+		t.Errorf("message = %q, want %q", o.Message, "too complex")
+	}
+}
+
+// --- Task 6: Package-Level Directive tests ---
+
+func TestParseConfig_PackageImportDepth(t *testing.T) {
+	content := `package import_depth > 5 -> error "dependency chain too deep"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.PackageRules) != 1 {
+		t.Fatalf("expected 1 package rule, got %d", len(cfg.PackageRules))
+	}
+	r := cfg.PackageRules[0]
+	if r.Metric != "import_depth" {
+		t.Errorf("metric = %q, want %q", r.Metric, "import_depth")
+	}
+	if r.Threshold != 5 {
+		t.Errorf("threshold = %d, want 5", r.Threshold)
+	}
+	if r.Severity != "error" {
+		t.Errorf("severity = %q, want %q", r.Severity, "error")
+	}
+	if r.Message != "dependency chain too deep" {
+		t.Errorf("message = %q, want %q", r.Message, "dependency chain too deep")
+	}
+	if r.Scope != "" {
+		t.Errorf("scope = %q, want empty", r.Scope)
+	}
+	if r.Enforcement {
+		t.Error("enforcement should be false for threshold rule")
+	}
+}
+
+func TestParseConfig_PackageScopedRule(t *testing.T) {
+	content := `package exported_symbols > 50 in pkg/* -> warn "package API surface too large"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.PackageRules) != 1 {
+		t.Fatalf("expected 1 package rule, got %d", len(cfg.PackageRules))
+	}
+	r := cfg.PackageRules[0]
+	if r.Metric != "exported_symbols" {
+		t.Errorf("metric = %q, want %q", r.Metric, "exported_symbols")
+	}
+	if r.Threshold != 50 {
+		t.Errorf("threshold = %d, want 50", r.Threshold)
+	}
+	if r.Scope != "pkg/*" {
+		t.Errorf("scope = %q, want %q", r.Scope, "pkg/*")
+	}
+	if r.Severity != "warn" {
+		t.Errorf("severity = %q, want %q", r.Severity, "warn")
+	}
+	if r.Message != "package API surface too large" {
+		t.Errorf("message = %q, want %q", r.Message, "package API surface too large")
+	}
+	if r.Enforcement {
+		t.Error("enforcement should be false for threshold rule")
+	}
+}
+
+func TestParseConfig_PackageNoCycles(t *testing.T) {
+	content := `package no_import_cycles -> error "import cycle detected"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.PackageRules) != 1 {
+		t.Fatalf("expected 1 package rule, got %d", len(cfg.PackageRules))
+	}
+	r := cfg.PackageRules[0]
+	if r.Metric != "no_import_cycles" {
+		t.Errorf("metric = %q, want %q", r.Metric, "no_import_cycles")
+	}
+	if r.Severity != "error" {
+		t.Errorf("severity = %q, want %q", r.Severity, "error")
+	}
+	if r.Message != "import cycle detected" {
+		t.Errorf("message = %q, want %q", r.Message, "import cycle detected")
+	}
+	if !r.Enforcement {
+		t.Error("enforcement should be true for no_ enforcement rule")
+	}
+	if r.Threshold != 0 {
+		t.Errorf("threshold = %d, want 0 for enforcement rule", r.Threshold)
+	}
+}
+
 func TestParseConfig_MultipleDirectives(t *testing.T) {
 	content := `# Override thresholds
 cyclomatic > 35         → warn  "function too complex"
