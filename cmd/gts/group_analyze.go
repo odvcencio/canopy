@@ -8,6 +8,7 @@ func newAnalyzeGroup() *cobra.Command {
 		Short: "Quality, complexity, and security analysis",
 	}
 	cmd.AddCommand(
+		newCheckCmd(),
 		newComplexityCmd(),
 		newHotspotCmd(),
 		newLintCmd(),

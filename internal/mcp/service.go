@@ -148,6 +148,7 @@ func (s *Service) Tools() []Tool {
 					"depth":             {Type: "integer"},
 					"reverse":           {Type: "boolean"},
 					"edges":             {Type: "boolean"},
+					"cycles_only":       {Type: "boolean", Description: "only return import cycle information"},
 					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
 					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
 				},
@@ -392,6 +393,22 @@ func (s *Service) Tools() []Tool {
 				},
 			}.ToMap(),
 		},
+		{
+			Name:        "gts_check",
+			Description: "Run configurable quality gates (complexity, length, generated ratio) and report pass/fail for CI",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"max_cyclomatic":    {Type: "integer", Description: "max cyclomatic complexity per function (default: 50, 0 to disable)"},
+					"max_cognitive":     {Type: "integer", Description: "max cognitive complexity per function (default: 80, 0 to disable)"},
+					"max_lines":         {Type: "integer", Description: "max lines per function (default: 300, 0 to disable)"},
+					"max_generated_pct": {Type: "integer", Description: "max % of files that are generated (default: 60, 0 to disable)"},
+					"include_generated": {Type: "boolean", Description: "include generated files in complexity analysis (default: false)"},
+					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
 	}
 	for i := range tools {
 		finalizeToolSchema(&tools[i])
@@ -527,6 +544,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callImpact(args)
 	case "gts_hotspot":
 		return s.callHotspot(args)
+	case "gts_check":
+		return s.callCheck(args)
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
