@@ -39,6 +39,9 @@ func newFilesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if gen, _ := cmd.Flags().GetString("generator"); gen != "" {
+				idx = idx.FilterByGenerator(gen)
+			}
 
 			report, err := files.Build(idx, files.Options{
 				Language:   language,
