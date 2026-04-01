@@ -37,11 +37,20 @@ type ConfigIgnore struct {
 	Symbol   string `json:"symbol"`    // optional, extracted after : in "file.go:funcName"
 }
 
+// LicenseRule defines a license enforcement directive.
+type LicenseRule struct {
+	Type     string   `json:"type"`     // "deny"
+	Licenses []string `json:"licenses"` // SPDX IDs
+	Severity string   `json:"severity"`
+	Message  string   `json:"message"`
+}
+
 // Config holds all parsed directives from a .gtslint configuration file.
 type Config struct {
 	Overrides    []ConfigOverride `json:"overrides,omitempty"`
 	Ignores      []ConfigIgnore   `json:"ignores,omitempty"`
 	PackageRules []PackageRule    `json:"package_rules,omitempty"`
+	LicenseRules []LicenseRule    `json:"license_rules,omitempty"`
 }
 
 // packageThresholdPattern matches lines like: package import_depth > 5 -> error "dependency chain too deep"
@@ -64,6 +73,11 @@ var scopedOverridePattern = regexp.MustCompile(
 // overridePattern matches lines like: cyclomatic > 35 → warn "function too complex"
 var overridePattern = regexp.MustCompile(
 	`^\s*(\S+)\s*>\s*(\d+)\s*(?:→|->)\s*(\w+)\s+"([^"]*)"`,
+)
+
+// licensePattern matches lines like: license deny GPL-2.0, GPL-3.0 -> error "copyleft not permitted"
+var licensePattern = regexp.MustCompile(
+	`^\s*license\s+(deny)\s+(.+?)\s*(?:→|->)\s*(\w+)\s+"([^"]*)"`,
 )
 
 // ignorePattern matches lines like: ignore cyclomatic in policy.go:listPREntityChanges
@@ -186,6 +200,31 @@ func ParseConfig(content string) (*Config, error) {
 				Threshold: threshold,
 				Severity:  severity,
 				Message:   m[4],
+			})
+			continue
+		}
+
+		// License rules: license deny SPDX-ID, SPDX-ID → severity "msg"
+		if m := licensePattern.FindStringSubmatch(line); m != nil {
+			severity := strings.ToLower(m[3])
+			if severity != "warn" && severity != "error" {
+				return nil, fmt.Errorf("line %d: unsupported severity %q (expected warn or error)", lineNo+1, m[3])
+			}
+			var licenses []string
+			for _, l := range strings.Split(m[2], ",") {
+				l = strings.TrimSpace(l)
+				if l != "" {
+					licenses = append(licenses, l)
+				}
+			}
+			if len(licenses) == 0 {
+				return nil, fmt.Errorf("line %d: license rule has no SPDX IDs", lineNo+1)
+			}
+			cfg.LicenseRules = append(cfg.LicenseRules, LicenseRule{
+				Type:     strings.ToLower(m[1]),
+				Licenses: licenses,
+				Severity: severity,
+				Message:  m[4],
 			})
 			continue
 		}

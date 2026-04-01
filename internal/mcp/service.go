@@ -429,6 +429,16 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_licenses",
+			Description: "Detect dependency licenses from manifests and vendored LICENSE files, with deny-list enforcement",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path": {Type: "string", Description: "index root path"},
+					"deny": {Type: "array", Items: &Property{Type: "string"}, Description: "additional denied SPDX license IDs"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_reachability",
 			Description: "Check whether a package transitively reaches sensitive capabilities (process exec, network, file I/O) via call graph",
 			InputSchema: Schema{
@@ -628,6 +638,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCheck(args)
 	case "gts_boundaries":
 		return s.callBoundaries(args)
+	case "gts_licenses":
+		return s.callLicenses(args)
 	case "gts_reachability":
 		return s.callReachability(args)
 	case "gts_drift":

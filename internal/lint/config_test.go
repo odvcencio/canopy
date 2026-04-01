@@ -489,3 +489,96 @@ ignore * in internal/database/sqlcgen/
 		t.Fatalf("expected 3 ignores, got %d", len(cfg.Ignores))
 	}
 }
+
+// --- License Rule Directive tests ---
+
+func TestParseConfig_LicenseDenySingle(t *testing.T) {
+	content := `license deny GPL-3.0 -> error "copyleft not allowed"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.LicenseRules) != 1 {
+		t.Fatalf("expected 1 license rule, got %d", len(cfg.LicenseRules))
+	}
+	r := cfg.LicenseRules[0]
+	if r.Type != "deny" {
+		t.Errorf("type = %q, want %q", r.Type, "deny")
+	}
+	if len(r.Licenses) != 1 || r.Licenses[0] != "GPL-3.0" {
+		t.Errorf("licenses = %v, want [GPL-3.0]", r.Licenses)
+	}
+	if r.Severity != "error" {
+		t.Errorf("severity = %q, want %q", r.Severity, "error")
+	}
+	if r.Message != "copyleft not allowed" {
+		t.Errorf("message = %q, want %q", r.Message, "copyleft not allowed")
+	}
+}
+
+func TestParseConfig_LicenseDenyMultiple(t *testing.T) {
+	content := `license deny GPL-2.0, GPL-3.0, AGPL-3.0 -> error "copyleft not permitted"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.LicenseRules) != 1 {
+		t.Fatalf("expected 1 license rule, got %d", len(cfg.LicenseRules))
+	}
+	r := cfg.LicenseRules[0]
+	if len(r.Licenses) != 3 {
+		t.Fatalf("expected 3 licenses, got %d", len(r.Licenses))
+	}
+	expected := []string{"GPL-2.0", "GPL-3.0", "AGPL-3.0"}
+	for i, want := range expected {
+		if r.Licenses[i] != want {
+			t.Errorf("licenses[%d] = %q, want %q", i, r.Licenses[i], want)
+		}
+	}
+}
+
+func TestParseConfig_LicenseDenyUnicodeArrow(t *testing.T) {
+	content := `license deny MIT → warn "prefer Apache"`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.LicenseRules) != 1 {
+		t.Fatalf("expected 1 license rule, got %d", len(cfg.LicenseRules))
+	}
+	r := cfg.LicenseRules[0]
+	if r.Severity != "warn" {
+		t.Errorf("severity = %q, want %q", r.Severity, "warn")
+	}
+	if len(r.Licenses) != 1 || r.Licenses[0] != "MIT" {
+		t.Errorf("licenses = %v, want [MIT]", r.Licenses)
+	}
+}
+
+func TestParseConfig_LicenseDenyInvalidSeverity(t *testing.T) {
+	content := `license deny GPL-3.0 -> fatal "nope"`
+	_, err := ParseConfig(content)
+	if err == nil {
+		t.Fatal("expected ParseConfig to return error for invalid severity")
+	}
+}
+
+func TestParseConfig_LicenseWithOtherDirectives(t *testing.T) {
+	content := `cyclomatic > 35 -> warn "too complex"
+license deny AGPL-3.0 -> error "no AGPL"
+ignore lines in big_test.go
+`
+	cfg, err := ParseConfig(content)
+	if err != nil {
+		t.Fatalf("ParseConfig returned error: %v", err)
+	}
+	if len(cfg.Overrides) != 1 {
+		t.Errorf("expected 1 override, got %d", len(cfg.Overrides))
+	}
+	if len(cfg.LicenseRules) != 1 {
+		t.Errorf("expected 1 license rule, got %d", len(cfg.LicenseRules))
+	}
+	if len(cfg.Ignores) != 1 {
+		t.Errorf("expected 1 ignore, got %d", len(cfg.Ignores))
+	}
+}

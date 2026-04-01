@@ -11,6 +11,7 @@ func newAnalyzeGroup() *cobra.Command {
 		newCheckCmd(),
 		newComplexityCmd(),
 		newHotspotCmd(),
+		newLicensesCmd(),
 		newLintCmd(),
 		newCapaCmd(),
 		newReachabilityCmd(),
