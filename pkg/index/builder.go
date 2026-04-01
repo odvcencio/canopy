@@ -262,6 +262,26 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		return true
 	}
 
+	// Skip tree-sitter parsing for large generated files. The gateway will
+	// still read the file (Source populated, Tree nil) so the builder can
+	// do fast regex-based symbol extraction instead of a full AST parse.
+	if b.detector != nil {
+		policy.SkipTreeParse = func(absPath string, size int64) bool {
+			if size < generated.FastExtractThreshold {
+				return false
+			}
+			relPath, relErr := filepath.Rel(root, absPath)
+			if relErr != nil {
+				return false
+			}
+			relPath = filepath.ToSlash(relPath)
+			// Detect by filename only (nil source). Returns non-nil for
+			// filename-pattern matches without needing file contents.
+			info := b.detector.Detect(relPath, nil)
+			return info != nil && info.Reason == "filename"
+		}
+	}
+
 	// Wire ignore matcher's directory-level patterns into SkipDirs
 	// is not possible generically, but the gateway already skips .git,
 	// .graft, .hg, .svn, vendor, node_modules. The ShouldParse hook
@@ -350,6 +370,34 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 				Stats:      stats,
 			})
 			file.Close()
+			continue
+		}
+
+		// Fast path: file was read but tree-sitter parse was skipped
+		// (SkipTreeParse hook returned true). Use regex extraction.
+		if file.Tree == nil && file.IsRead && file.Err == nil {
+			summary := generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+			summary.Path = relPath
+			summary.SizeBytes = file.Size
+			summary.Language = parser.Language()
+			if b.detector != nil {
+				summary.Generated = b.detector.Detect(relPath, file.Source)
+			}
+			if fi, statErr := os.Stat(file.Path); statErr == nil {
+				summary.ModTimeUnixNano = fi.ModTime().UnixNano()
+			}
+			for i := range summary.Symbols {
+				summary.Symbols[i].File = relPath
+			}
+			file.Close()
+			filesByPath[relPath] = summary
+			stats.ParsedFiles++
+			emitBuildEvent(opts, BuildEvent{
+				Kind:    BuildEventParsed,
+				Path:    relPath,
+				Summary: summary,
+				Stats:   stats,
+			})
 			continue
 		}
 
