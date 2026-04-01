@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 - Nothing yet.
 
-## 2026-03-31
+## [0.12.0] - 2026-03-31
 
 ### Added
 - **Generated file detection** — new `pkg/generated` package with 3-phase detector (user config > filename patterns > header markers) and 40+ built-in signatures across Go, Python, JS/TS, Java/Kotlin, Rust, C/C++, Ruby, C#/.NET, and Swift.
@@ -23,7 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 - **Parallel parsing** — removed `MaxConcurrent=1` bottleneck; indexing now uses `GOMAXPROCS` concurrency with lazy grammar loading for OOM safety.
-- **Schema version** bumped to `0.2.0` for `ConfigHashes` support. Old cached indexes auto-rebuild.
+- **Index schema version** bumped to `0.2.0` for `ConfigHashes` support. Old cached indexes auto-rebuild.
 - Upgraded `gotreesitter` to `v0.13.0` (adds `SkipTreeParse` gateway hook).
 
 ### Performance
