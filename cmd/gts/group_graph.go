@@ -16,6 +16,7 @@ func newGraphGroup() *cobra.Command {
 		newTestmapCmd(),
 		newUnresolvedCmd(),
 		newFaninCmd(),
+		newDriftCmd(),
 	)
 	return cmd
 }

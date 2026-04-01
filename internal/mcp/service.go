@@ -249,6 +249,17 @@ func graphTools() []Tool {
 				},
 			}.ToMap(),
 		},
+		{
+			Name:        "gts_drift",
+			Description: "Compare dependency graph between two git refs",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":  {Type: "string"},
+					"cache": {Type: "string"},
+					"base":  {Type: "string", Description: "git ref to compare against (default: origin/main)"},
+				},
+			}.ToMap(),
+		},
 	}
 }
 
@@ -402,6 +413,18 @@ func analyzeTools() []Tool {
 					"max_generated_pct": {Type: "integer", Description: "max % of files that are generated (default: 60, 0 to disable)"},
 					"include_generated": {Type: "boolean", Description: "include generated files in complexity analysis (default: false)"},
 					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
+			Name:        "gts_boundaries",
+			Description: "Check module boundary rules from .gtsboundaries config",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string"},
+					"cache":             {Type: "string"},
+					"include_generated": {Type: "boolean"},
+					"generator":         {Type: "string"},
 				},
 			}.ToMap(),
 		},
@@ -573,6 +596,10 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callHotspot(args)
 	case "gts_check":
 		return s.callCheck(args)
+	case "gts_boundaries":
+		return s.callBoundaries(args)
+	case "gts_drift":
+		return s.callDrift(args)
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
