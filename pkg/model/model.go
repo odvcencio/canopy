@@ -52,11 +52,12 @@ type ParseError struct {
 
 // Index is a structural snapshot of a codebase containing file summaries and parse errors.
 type Index struct {
-	Version     string        `json:"version"`
-	Root        string        `json:"root"`
-	GeneratedAt time.Time     `json:"generated_at"`
-	Files       []FileSummary `json:"files"`
-	Errors      []ParseError  `json:"errors,omitempty"`
+	Version      string            `json:"version"`
+	Root         string            `json:"root"`
+	GeneratedAt  time.Time         `json:"generated_at"`
+	Files        []FileSummary     `json:"files"`
+	Errors       []ParseError      `json:"errors,omitempty"`
+	ConfigHashes map[string]string `json:"config_hashes,omitempty"`
 }
 
 // FileCount returns the number of successfully parsed files in the index.

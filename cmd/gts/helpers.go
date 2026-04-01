@@ -22,10 +22,18 @@ func loadOrBuild(cachePath string, target string, noCache bool) (*model.Index, e
 	if !noCache {
 		autoPath := filepath.Join(target, ".gts", "index.json")
 		if fi, err := os.Stat(autoPath); err == nil {
-			if idx, err := index.Load(autoPath); err == nil {
-				age := time.Since(fi.ModTime()).Truncate(time.Second)
-				fmt.Fprintf(os.Stderr, "index: using cached %s (age %s, pass --no-cache for fresh)\n", autoPath, age)
-				return idx, nil
+			if idx, loadErr := index.Load(autoPath); loadErr == nil {
+				if idx.ConfigHashes == nil {
+					fmt.Fprintf(os.Stderr, "index: cache predates config tracking, rebuilding...\n")
+				} else {
+					current, hashErr := index.ComputeConfigHashes(target)
+					if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
+						age := time.Since(fi.ModTime()).Truncate(time.Second)
+						fmt.Fprintf(os.Stderr, "index: using cached %s (age %s, pass --no-cache for fresh)\n", autoPath, age)
+						return idx, nil
+					}
+					fmt.Fprintf(os.Stderr, "index: config changed since last build, rebuilding...\n")
+				}
 			}
 		}
 	}
@@ -34,6 +42,18 @@ func loadOrBuild(cachePath string, target string, noCache bool) (*model.Index, e
 		return nil, err
 	}
 	return builder.BuildPath(target)
+}
+
+func configHashesMatch(cached, current map[string]string) bool {
+	if len(cached) != len(current) {
+		return false
+	}
+	for k, v := range cached {
+		if current[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func emitJSON(value any) error {

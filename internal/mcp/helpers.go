@@ -23,7 +23,13 @@ func (s *Service) loadOrBuild(cachePath string, target string) (*model.Index, er
 	autoPath := filepath.Join(target, ".gts", "index.json")
 	if _, err := os.Stat(autoPath); err == nil {
 		if idx, loadErr := index.Load(autoPath); loadErr == nil {
-			return idx, nil
+			if idx.ConfigHashes != nil {
+				current, hashErr := index.ComputeConfigHashes(target)
+				if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
+					return idx, nil
+				}
+			}
+			// ConfigHashes nil (old cache) or mismatch — fall through to rebuild.
 		}
 	}
 	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
@@ -47,7 +53,13 @@ func (s *Service) loadIndexFromSource(pathArg, cacheArg string) (*model.Index, e
 	autoPath := filepath.Join(target, ".gts", "index.json")
 	if _, err := os.Stat(autoPath); err == nil {
 		if idx, loadErr := index.Load(autoPath); loadErr == nil {
-			return idx, nil
+			if idx.ConfigHashes != nil {
+				current, hashErr := index.ComputeConfigHashes(target)
+				if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
+					return idx, nil
+				}
+			}
+			// ConfigHashes nil (old cache) or mismatch — fall through to rebuild.
 		}
 	}
 	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
@@ -202,4 +214,16 @@ func isEntrypointDefinition(definition xref.Definition) bool {
 
 func isTestSourceFile(path string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), "_test.go")
+}
+
+func configHashesMatch(cached, current map[string]string) bool {
+	if len(cached) != len(current) {
+		return false
+	}
+	for k, v := range cached {
+		if current[k] != v {
+			return false
+		}
+	}
+	return true
 }

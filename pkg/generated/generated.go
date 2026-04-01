@@ -3,6 +3,7 @@
 package generated
 
 import (
+	"bytes"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -10,7 +11,13 @@ import (
 	"github.com/odvcencio/gts-suite/pkg/model"
 )
 
-const maxScanLines = 20
+const maxScanLines = 40
+
+var preamblePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^\s*(//|#|/\*|\*|--)\s*(copyright|license|SPDX|Permission is hereby|Licensed under|All rights reserved)`),
+	regexp.MustCompile(`^\s*$`),
+	regexp.MustCompile(`^\s*\*\s*$`),
+}
 
 // ConfigEntry represents a user-defined generated file pattern from .gtsgenerated.
 type ConfigEntry struct {
@@ -115,21 +122,43 @@ func (d *Detector) Detect(relPath string, source []byte) *model.GeneratedInfo {
 }
 
 func extractHeader(source []byte, maxLines int) []byte {
-	end := 0
-	lines := 0
-	for i, b := range source {
-		if b == '\n' {
-			lines++
-			if lines >= maxLines {
-				end = i
+	var result []byte
+	contentLines := 0
+	offset := 0
+	for offset < len(source) {
+		nl := bytes.IndexByte(source[offset:], '\n')
+		var lineEnd int
+		if nl < 0 {
+			lineEnd = len(source)
+		} else {
+			lineEnd = offset + nl + 1
+		}
+
+		line := source[offset:lineEnd]
+		trimmedLine := bytes.TrimRight(line, "\r\n")
+
+		isPreamble := false
+		for _, re := range preamblePatterns {
+			if re.Match(trimmedLine) {
+				isPreamble = true
 				break
 			}
 		}
+
+		if !isPreamble {
+			contentLines++
+			if contentLines > maxLines {
+				break
+			}
+			result = append(result, line...)
+		}
+
+		if nl < 0 {
+			break
+		}
+		offset = lineEnd
 	}
-	if end == 0 {
-		return source
-	}
-	return source[:end]
+	return result
 }
 
 // matchGlob matches a pattern against a slash-separated path, supporting **

@@ -98,7 +98,7 @@ func TestBuildPathIncrementalWithOptions_ObserverReceivesStreamedEvents(t *testi
 
 func TestPartialIndexSnapshotTracksFilesAndErrors(t *testing.T) {
 	base := &model.Index{
-		Version: "0.1.0",
+		Version: "0.2.0",
 		Root:    "/repo",
 		Files: []model.FileSummary{
 			{Path: "a.go", Language: "go"},
@@ -168,7 +168,7 @@ func TestSaveOverwritesExistingCache(t *testing.T) {
 	cachePath := filepath.Join(tmpDir, "nested", "index.json")
 
 	first := &model.Index{
-		Version: "0.1.0",
+		Version: "0.2.0",
 		Root:    "/first",
 		Files: []model.FileSummary{
 			{Path: "a.go", Language: "go"},
@@ -176,7 +176,7 @@ func TestSaveOverwritesExistingCache(t *testing.T) {
 		GeneratedAt: time.Unix(1, 0).UTC(),
 	}
 	second := &model.Index{
-		Version: "0.1.0",
+		Version: "0.2.0",
 		Root:    "/second",
 		Files: []model.FileSummary{
 			{Path: "b.go", Language: "go"},

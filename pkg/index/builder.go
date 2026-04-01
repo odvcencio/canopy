@@ -21,13 +21,17 @@ import (
 	"github.com/odvcencio/gts-suite/pkg/model"
 )
 
-const schemaVersion = "0.1.0"
+const schemaVersion = "0.2.0"
 
 type Builder struct {
-	parsers  map[string]lang.Parser
-	ignore   *ignore.Matcher
-	detector *generated.Detector
+	parsers      map[string]lang.Parser
+	ignore       *ignore.Matcher
+	detector     *generated.Detector
+	configHashes map[string]string
 }
+
+// SetConfigHashes stores pre-computed config file hashes to embed in built indexes.
+func (b *Builder) SetConfigHashes(h map[string]string) { b.configHashes = h }
 
 type BuildStats struct {
 	CandidateFiles int `json:"candidate_files"`
@@ -409,6 +413,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 	}
 
 	index := snapshotIndex(root, filesByPath, errorsByPath)
+	index.ConfigHashes = b.configHashes
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return index, stats, ctxErr
 	}
@@ -537,6 +542,7 @@ func (b *Builder) buildSingleFileWithOptions(ctx context.Context, target string,
 	})
 
 	index := snapshotIndex(root, filesByPath, errorsByPath)
+	index.ConfigHashes = b.configHashes
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return index, stats, ctxErr
 	}

@@ -1,7 +1,9 @@
 package index
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -95,6 +97,28 @@ func splitLines(s string) []string {
 	return lines
 }
 
+// ComputeConfigHashes computes SHA-256 hashes of workspace config files.
+// Returns a map of filename → hex hash. Missing files are omitted.
+func ComputeConfigHashes(target string) (map[string]string, error) {
+	root, err := workspaceIgnoreRoot(target)
+	if err != nil {
+		return nil, err
+	}
+	hashes := make(map[string]string)
+	for _, name := range workspaceIgnoreFiles {
+		data, readErr := os.ReadFile(filepath.Join(root, name))
+		if readErr != nil {
+			continue
+		}
+		h := sha256.Sum256(data)
+		hashes[name] = fmt.Sprintf("%x", h)
+	}
+	if len(hashes) == 0 {
+		return nil, nil
+	}
+	return hashes, nil
+}
+
 // LoadWorkspaceGeneratedConfig finds the workspace root and loads .gtsgenerated
 // config entries. Returns nil entries (no error) when the file is absent.
 func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, error) {
@@ -122,5 +146,12 @@ func NewBuilderWithWorkspaceIgnores(target string) (*Builder, error) {
 		return nil, err
 	}
 	builder.SetDetector(generated.NewDetector(configs))
+
+	hashes, err := ComputeConfigHashes(target)
+	if err != nil {
+		return nil, err
+	}
+	builder.SetConfigHashes(hashes)
+
 	return builder, nil
 }
