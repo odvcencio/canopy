@@ -428,6 +428,23 @@ func analyzeTools() []Tool {
 				},
 			}.ToMap(),
 		},
+		{
+			Name:        "gts_reachability",
+			Description: "Check whether a package transitively reaches sensitive capabilities (process exec, network, file I/O) via call graph",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"package":           {Type: "string", Description: "target package to analyze (required)"},
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"category":          {Type: "string", Description: "filter by capability category (e.g. process_execution, network_access, file_access)"},
+					"attack_id":         {Type: "string", Description: "filter by MITRE ATT&CK ID (e.g. T1059)"},
+					"depth":             {Type: "integer", Description: "max traversal depth (default: 10)"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+				Required: []string{"package"},
+			}.ToMap(),
+		},
 	}
 }
 
@@ -598,6 +615,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCheck(args)
 	case "gts_boundaries":
 		return s.callBoundaries(args)
+	case "gts_reachability":
+		return s.callReachability(args)
 	case "gts_drift":
 		return s.callDrift(args)
 	default:

@@ -13,6 +13,7 @@ func newAnalyzeGroup() *cobra.Command {
 		newHotspotCmd(),
 		newLintCmd(),
 		newCapaCmd(),
+		newReachabilityCmd(),
 		newSimilarityCmd(),
 		newDuplicationCmd(),
 		newSummaryCmd(),
