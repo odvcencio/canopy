@@ -1,176 +1,261 @@
 # gts-suite
 
-Bootstrap implementation of a structural CLI suite powered by [gotreesitter](https://github.com/odvcencio/gotreesitter), with shared indexing primitives.
+Structural code analysis toolkit powered by [gotreesitter](https://github.com/odvcencio/gotreesitter). AST-based indexing, search, call graph analysis, security intelligence, architecture governance, and AI agent integration across 206+ languages.
 
-## Implemented commands
+## Install
 
-- `gtsindex`: Build and cache a structural index.
-- `gtsmap`: Emit structural summaries for parsed files.
-- `gtsfiles`: List files with structural density filters/sorting.
-- `gtsstats`: Report structural codebase metrics from an index.
-- `gtsdeps`: Analyze import dependency graph (package or file level).
-- `gtsbridge`: Map cross-component dependency bridges.
-- `gtsgrep`: Query symbols using structural selectors.
-- `gtsrefs`: Query indexed call/reference occurrences by symbol name or regex.
-- `gtscallgraph`: Traverse resolved call graph edges from matching roots.
-- `gtsdead`: List callable definitions with zero incoming call references.
-- `gtsquery`: Run raw tree-sitter S-expression queries across files.
-- `gtsmcp`: Run MCP stdio server exposing structural tools to AI agents.
-- `gtsdiff`: Compare structural changes between two snapshots.
-- `gtsrefactor`: Apply structural declaration renames (dry-run by default).
-- `gtschunk`: Split code into AST-boundary chunks for retrieval/indexing.
-- `gtsscope`: Resolve symbols in scope at a file + line.
-- `gtscontext`: Pack focused context around a file + line for agent token budgets.
-- `gtslint`: Run structural lint rules against indexed symbols.
-
-This cut includes generic tree-sitter parsing for languages that ship a `TagsQuery`, with deterministic JSON output for agent use.
+```bash
+go install github.com/odvcencio/gts-suite/cmd/gts@latest
+```
 
 ## Quickstart
 
 ```bash
-go run ./cmd/gts gtsindex . --out .gts/index.json
-go run ./cmd/gts gtsindex . --out .gts/index.json --once-if-changed
-go run ./cmd/gts gtsindex . --incremental --watch --subfile-incremental --interval 2s --out .gts/index.json
-go run ./cmd/gts gtsindex . --incremental --watch --poll --interval 2s --out .gts/index.json
-go run ./cmd/gts gtsmap --cache .gts/index.json --json
-go run ./cmd/gts gtsfiles . --sort symbols --top 20
-go run ./cmd/gts gtsstats . --top 15
-go run ./cmd/gts gtsdeps . --by package --focus internal/query --depth 2 --reverse
-go run ./cmd/gts gtsbridge . --focus internal/query --depth 2 --reverse
-go run ./cmd/gts gtsgrep 'function_definition[name=/^Test/,start>=10]' --cache .gts/index.json
-go run ./cmd/gts gtsrefs ParseConfig . --cache .gts/index.json
-go run ./cmd/gts gtscallgraph main . --depth 2
-go run ./cmd/gts gtsdead . --kind callable
-go run ./cmd/gts gtsquery '(function_declaration (identifier) @name)' . --count
-go run ./cmd/gts gtsmcp --root .
-go run ./cmd/gts gtsmcp --root . --allow-writes
-go run ./cmd/gts gtsgrep 'method_definition[receiver=/Service/,signature=/Serve/]' --cache .gts/index.json --count
-go run ./cmd/gts gtsdiff --before-cache before.json --after-cache after.json --json
-go run ./cmd/gts gtsrefactor 'function_definition[name=/^OldName$/]' NewName . --callsites --cross-package --write
-go run ./cmd/gts gtschunk . --tokens 500 --json
-go run ./cmd/gts gtsscope cmd/gts/main.go --line 300 --cache .gts/index.json --json
-go run ./cmd/gts gtscontext cmd/gts/main.go --line 120 --tokens 600 --semantic --semantic-depth 2 --json
-go run ./cmd/gts gtslint . --rule 'no function longer than 50 lines'
-go run ./cmd/gts gtslint . --rule 'no import fmt'
-go run ./cmd/gts gtslint . --pattern ./rules/no-empty-func.scm
+# Build a structural index
+gts index build .
+
+# Search for symbols
+gts search refs ParseConfig .
+
+# Check code quality (CI gate)
+gts analyze check --max-cyclomatic 30
+
+# Full executive report
+gts analyze report --format markdown
+
+# Run MCP server for AI agents
+gts mcp --root .
 ```
 
-## Selector syntax (`gtsgrep`)
+## Commands
 
-Pattern format:
+### Index — Build and manage structural indexes
 
-```text
+| Command | Description |
+|---------|-------------|
+| `gts index build [path]` | Build/incrementally update index with watch mode |
+| `gts index map` | Structural table-of-contents for indexed files |
+| `gts index files` | List files with density filters and sorting |
+| `gts index stats` | Codebase metrics: symbol counts, language breakdown |
+| `gts index diff` | Compare structural changes between two snapshots |
+| `gts index errors` | Show parse errors from indexing |
+| `gts index validate` | Validate index integrity |
+| `gts index export` | Export index to portable `.gtsindex` file for federation |
+| `gts index import` | Load and summarize exported indexes |
+
+### Search — Find symbols, references, and patterns
+
+| Command | Description |
+|---------|-------------|
+| `gts search grep` | Structural selector queries (e.g. `function_definition[name=/^Test/]`) |
+| `gts search refs` | Find references by symbol name or regex |
+| `gts search query` | Raw tree-sitter S-expression queries |
+| `gts search scope` | Resolve symbols in scope at file + line |
+| `gts search context` | Pack focused context for agent token budgets. `--concept` for concept-aware packing |
+| `gts search symbols` | Search symbols by pattern |
+| `gts search imports` | Analyze import patterns |
+
+### Graph — Call graph, dependency, and coverage analysis
+
+| Command | Description |
+|---------|-------------|
+| `gts graph calls` | Traverse call graph edges from matching roots |
+| `gts graph dead` | List callable definitions with zero incoming references |
+| `gts graph deps` | Import dependency graph with cycle detection (`--cycles`) |
+| `gts graph bridge` | Map cross-component dependency bridges |
+| `gts graph impact` | Blast radius via reverse call graph |
+| `gts graph testmap` | Map test functions to implementations |
+| `gts graph fanin` | Rank functions by incoming call count |
+| `gts graph unresolved` | Show unresolved call references |
+| `gts graph drift` | Compare dependency graph between two git refs |
+| `gts graph services` | Repo-to-repo dependency map from federated indexes |
+
+### Analyze — Quality, complexity, security, and governance
+
+| Command | Description |
+|---------|-------------|
+| `gts analyze check` | CI quality gate with configurable thresholds. `--base` for diff-aware PR filtering. `--format sarif` for GitHub Advanced Security |
+| `gts analyze boundaries` | Module boundary enforcement from `.gtsboundaries`. `--format sarif` |
+| `gts analyze complexity` | Per-function cyclomatic, cognitive, nesting, fan-in/out metrics |
+| `gts analyze hotspot` | Code hotspots from git churn + complexity + centrality |
+| `gts analyze lint` | Structural lint with built-in rules, query patterns, and secrets detection. `--format sarif` |
+| `gts analyze capa` | Capability detection with MITRE ATT&CK mapping |
+| `gts analyze reachability` | Supply chain analysis: does package X reach capability Y? |
+| `gts analyze licenses` | Dependency license detection with SPDX matching and deny rules |
+| `gts analyze similarity` | Find similar functions between codebases |
+| `gts analyze duplication` | Detect code duplication |
+| `gts analyze report` | Executive summary: complexity, architecture, security, dead code, hotspots. `--by-team` for CODEOWNERS breakdown |
+| `gts analyze review` | Aggregated PR review: complexity delta, boundary violations, new capabilities, blast radius |
+| `gts analyze trends` | Track quality metrics over time (`record` / `show`) |
+
+### Transform — Code transformations and output generation
+
+| Command | Description |
+|---------|-------------|
+| `gts transform refactor` | AST-aware declaration renames with cross-package callsite updates |
+| `gts transform chunk` | AST-boundary chunks for RAG/indexing. `--format embeddings` for vector DB |
+| `gts transform sbom` | CycloneDX 1.5 SBOM with optional capability enrichment |
+| `gts transform yara` | Generate YARA rules from structural analysis |
+| `gts transform normalize` | Normalize decompiler output |
+
+### Other
+
+| Command | Description |
+|---------|-------------|
+| `gts init` | Guided project setup: generates `.gtsignore`, `.gtsgenerated`, `.gtsboundaries` |
+| `gts init ci` | Generate GitHub Actions workflow for CI quality checks |
+| `gts mcp` | MCP stdio server exposing 30+ tools to AI agents (Claude, Cursor, VS Code) |
+
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `.gtsignore` | Gitignore-style patterns to exclude files from indexing |
+| `.gtsgenerated` | Declare generated file patterns with named generators |
+| `.gtsboundaries` | Module boundary rules (allow/deny import relationships) |
+| `.gtslint` | Lint thresholds, scoped overrides, package-level rules, ignore rules, license deny rules |
+
+### `.gtsboundaries` example
+
+```
+# pkg/model has no internal dependencies
+module pkg/model      allow -
+
+# pkg/index can only import these packages
+module pkg/index      allow pkg/model, pkg/lang, pkg/generated
+
+# internal packages can use any pkg but not cross-import
+module internal/*     allow pkg/*
+module internal/*     deny  internal/*
+```
+
+### `.gtslint` example
+
+```
+# Override default thresholds
+cyclomatic > 35 -> warn "function too complex"
+cognitive > 60  -> warn "hard to reason about"
+
+# Scoped rules
+fan_out > 10 in pkg/* -> warn "high fan-out"
+
+# Package-level rules
+package import_depth > 5 -> error "dependency chain too deep"
+package exported_symbols > 50 in pkg/* -> warn "API surface too large"
+package no_import_cycles -> error "import cycle detected"
+
+# Ignore specific functions
+ignore cyclomatic in generated/
+
+# License enforcement
+license deny GPL-3.0, AGPL-3.0 -> error "copyleft license not permitted"
+```
+
+## Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--include-generated` | Include generated files in output (excluded by default) |
+| `--generator <name>` | Filter to specific generator (e.g. `protobuf`, `human`) |
+| `--federation <dir>` | Directory of `.gtsindex` files for cross-repo analysis |
+
+## Multi-Repo Federation
+
+Analyze across multiple repositories without a central server:
+
+```bash
+# In each repo's CI:
+gts index build . && gts index export -o myrepo.gtsindex
+
+# Collect all .gtsindex files, then:
+gts graph services --federation ./indexes/
+gts search refs "AuthService" --federation ./indexes/
+gts graph dead --federation ./indexes/
+```
+
+## CI Integration
+
+Generate a GitHub Actions workflow:
+
+```bash
+gts init ci
+```
+
+This creates `.github/workflows/gts-check.yml` that runs quality checks on PRs with SARIF upload for inline annotations.
+
+Manual SARIF integration:
+
+```bash
+gts analyze check --base origin/main --format sarif > results.sarif
+```
+
+Track metrics over time:
+
+```bash
+gts analyze trends record    # append current metrics to .gts/trends.jsonl
+gts analyze trends show      # display trend summary with deltas
+```
+
+## MCP Server
+
+The MCP stdio server exposes 30+ structural analysis tools to AI agents via JSON-RPC.
+
+```bash
+gts mcp --root /path/to/repo
+gts mcp --root /path/to/repo --allow-writes  # enable refactoring tools
+```
+
+### Client setup
+
+**Claude Desktop / Claude Code / Cursor / VS Code:**
+
+```json
+{
+  "mcpServers": {
+    "gts": {
+      "command": "gts",
+      "args": ["mcp", "--root", "/path/to/repo"]
+    }
+  }
+}
+```
+
+### Key MCP tools
+
+| Tool | Description |
+|------|-------------|
+| `gts_guardrails` | File-level advisory: generated status, complexity, fan-in warnings. Call before editing |
+| `gts_review` | Aggregated PR review for changed files |
+| `gts_reachability` | Supply chain capability analysis |
+| `gts_boundaries` | Module boundary enforcement |
+| `gts_report` | Executive summary of all analyses |
+| `gts_callgraph` | Call graph traversal |
+| `gts_dead` | Dead code detection |
+| `gts_impact` | Blast radius computation |
+| `gts_context` | Token-budgeted context packing |
+| `gts_grep` | Structural selector search |
+
+## Selector Syntax
+
+Used by `gts search grep` and `gts_grep`:
+
+```
 <kind>[filter1,filter2,...]
 ```
 
-Examples:
-
+**Examples:**
 - `function_definition[name=/^Test/]`
-- `method_definition[name=/Serve/,receiver=/Service/]`
-- `type_definition`
+- `method_definition[receiver=/Service/,signature=/Serve/]`
 - `*[file=/handlers\/.go$/,start>=20,end<=200]`
 
-Supported filters:
+**Filters:** `name`, `signature`, `receiver`, `file` (regex); `start`, `end`, `line` (numeric comparisons).
 
-- `name=/regex/`
-- `signature=/regex/`
-- `receiver=/regex/`
-- `file=/regex/`
-- `start>=N`, `start<=N`, `start=N`
-- `end>=N`, `end<=N`, `end=N`
-- `line=N` (line contained inside symbol span)
+## Language Support
 
-Supported kinds in this version:
+206+ languages via gotreesitter grammars including Go, Python, JavaScript/TypeScript, Java, C/C++, Rust, C#, Ruby, PHP, Swift, Kotlin, Scala, SQL, HTML/CSS, YAML, JSON, Terraform, Dockerfile, and many more.
 
-- `function_definition`
-- `method_definition`
-- `type_definition`
+**Scope resolution** (symbol-in-scope at file+line): Go, Python, TypeScript.
 
-## Current scope
+## License
 
-- Multi-language structural extraction via gotreesitter tag queries (explicit core queries + inferred query fallback for additional grammars).
-- Go import extraction is preserved for dependency analysis.
-- Cache format: JSON (`.gts/index.json` by default).
-- Incremental cache reuse based on file size + mtime metadata.
-- Event-driven watch mode via `fsnotify` with polling fallback (`--poll` to force polling).
-- Watch mode supports changed-file updates with optional sub-file incremental parsing (`--subfile-incremental`).
-- Change reporting and CI exit signaling via `--report-changes` and `--once-if-changed`.
-- Deterministic ordering for files and matches.
-- File discovery (`gtsfiles`) supports language/symbol filters and density-based sorting.
-- Stats (`gtsstats`) summarizes symbol kinds, language breakdown, and top files by symbol density.
-- Dependencies (`gtsdeps`) summarizes import graph shape with top incoming/outgoing nodes and focus traversal (`--depth`, `--reverse`).
-- Bridges (`gtsbridge`) summarizes cross-component internal edges, external dependency pressure, and focus traversal.
-- Structural diff detects symbol additions/removals/modifications and import changes.
-- Structural refactor (`gtsrefactor`) supports AST-aware declaration renames plus same-package and module cross-package callsite updates.
-- Raw structural query (`gtsquery`) supports full tree-sitter patterns/captures across indexed files.
-- MCP server (`gtsmcp`) exposes `gts_grep`, `gts_map`, `gts_query`, `gts_refs`, `gts_context`, `gts_scope`, `gts_deps`, `gts_callgraph`, `gts_dead`, `gts_chunk`, `gts_lint`, `gts_refactor`, `gts_diff`, `gts_stats`, `gts_files`, and `gts_bridge` via stdio JSON-RPC.
-- MCP write operations are disabled by default; enable explicitly with `--allow-writes` for mutating tools.
-- MCP tool schemas are normalized to strict object schemas (`additionalProperties: false`) for safer agent-side argument validation.
-- MCP `tools/call` responses include `_meta` diagnostics (`tool`, `ok`, `duration_ms`).
-- Reference lookup (`gtsrefs`) surfaces `reference.*` tags extracted during indexing.
-- Call graph and dead-code primitives (`gtscallgraph`, `gtsdead`) resolve call edges from indexed references.
-- Chunking (`gtschunk`) emits AST-boundary units with per-chunk token budgeting.
-- Scope resolution (`gtsscope`) reports in-scope imports, package symbols, and local declarations for Go files.
-- Context packing supports spatial mode and semantic mode (`gtscontext --semantic`) with configurable call-depth traversal (`--semantic-depth`).
-- Structural linting (`gtslint`) supports built-in rules plus query-file patterns (`--pattern rule.scm`).
-- Index parsing is parallelized by default; set `GTS_INDEX_WORKERS` to tune worker count.
-- File scanning filters to parser-supported extensions during walk to reduce indexing overhead.
-
-## Roadmap Status
-
-- Phase 1 complete: raw tree-sitter query surface (`gtsquery`) is shipped.
-- Phase 2 complete: references are indexed and exposed through `gtsrefs`, `gtscallgraph`, and `gtsdead`.
-- Phase 3 in progress:
-  - Shipped: `gtscontext --semantic` follows call dependencies from the focus symbol with configurable depth.
-  - Next: add type dependency pulls and tighter relevance weighting across imports/types/calls.
-- Phase 4 in progress:
-  - Shipped: `gtslint --pattern path.scm` for query-file-based structural lint rules.
-  - Next: add a built-in starter query pattern pack and richer pattern metadata.
-- Phase 5 in progress:
-  - Shipped: changed-file watch updates now run through incremental watch apply and maintain per-file parse trees.
-  - Next: improve diff/edit application for more append/EOF cases and add persistent warm watch-state hydration.
-- Phase 6 in progress:
-  - Shipped: MCP stdio server command (`gtsmcp`) with tool calls for grep/map/query/refs/context/scope/deps/callgraph/dead/chunk/lint/refactor/diff.
-  - Shipped: normalized strict tool schemas and per-call `_meta` diagnostics in MCP responses.
-  - Next: add streaming progress notifications for long-running tool calls.
-
-## MCP client setup examples
-
-### Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "gts": {
-      "command": "gts",
-      "args": ["gtsmcp", "--root", "/absolute/path/to/repo"]
-    }
-  }
-}
-```
-
-### Cursor
-
-```json
-{
-  "mcpServers": {
-    "gts": {
-      "command": "gts",
-      "args": ["gtsmcp", "--root", "/absolute/path/to/repo"]
-    }
-  }
-}
-```
-
-### VS Code (MCP-compatible extension)
-
-```json
-{
-  "mcpServers": {
-    "gts": {
-      "command": "gts",
-      "args": ["gtsmcp", "--root", "${workspaceFolder}"]
-    }
-  }
-}
-```
+See [LICENSE](LICENSE) for details.
