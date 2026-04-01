@@ -72,6 +72,28 @@ Built-in rules compose with explicit --rule and --pattern flags: all fire togeth
 				}
 			}
 
+			lintCfg, cfgErr := lint.LoadConfig(target)
+			if cfgErr != nil {
+				return fmt.Errorf("loading .gtslint: %w", cfgErr)
+			}
+			if lintCfg != nil && useDefaults {
+				for _, override := range lintCfg.Overrides {
+					if override.Scope != "" {
+						continue
+					}
+					for i := range thresholdRules {
+						if thresholdRules[i].Metric == override.Metric {
+							thresholdRules[i].Threshold = override.Threshold
+							thresholdRules[i].Severity = override.Severity
+							if override.Message != "" {
+								thresholdRules[i].Message = override.Message
+							}
+							break
+						}
+					}
+				}
+			}
+
 			idx, err := loadOrBuild(cachePath, target, noCache)
 			if err != nil {
 				return err
@@ -91,6 +113,16 @@ Built-in rules compose with explicit --rule and --pattern flags: all fire togeth
 					return err
 				}
 				violations = append(violations, thresholdViolations...)
+			}
+
+			if lintCfg != nil {
+				var filtered []lint.Violation
+				for _, v := range violations {
+					if !lintCfg.ShouldIgnore(v.File, v.Name, v.RuleID) {
+						filtered = append(filtered, v)
+					}
+				}
+				violations = filtered
 			}
 
 			sort.Slice(violations, func(i, j int) bool {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/odvcencio/gts-suite/internal/lint"
 	"github.com/odvcencio/gts-suite/pkg/complexity"
 )
 
@@ -66,6 +67,32 @@ func newCheckCmd() *cobra.Command {
 			target := "."
 			if len(args) == 1 {
 				target = args[0]
+			}
+
+			lintCfg, cfgErr := lint.LoadConfig(target)
+			if cfgErr != nil {
+				return fmt.Errorf("loading .gtslint: %w", cfgErr)
+			}
+			if lintCfg != nil {
+				for _, override := range lintCfg.Overrides {
+					if override.Scope != "" {
+						continue
+					}
+					switch override.Metric {
+					case "cyclomatic":
+						if !cmd.Flags().Changed("max-cyclomatic") {
+							maxCyclomatic = override.Threshold
+						}
+					case "cognitive":
+						if !cmd.Flags().Changed("max-cognitive") {
+							maxCognitive = override.Threshold
+						}
+					case "lines":
+						if !cmd.Flags().Changed("max-lines") {
+							maxLines = override.Threshold
+						}
+					}
+				}
 			}
 
 			idx, err := loadOrBuild(cachePath, target, noCache)
