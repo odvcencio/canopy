@@ -101,6 +101,12 @@ Built-in rules compose with explicit --rule and --pattern flags: all fire togeth
 			idx = applyGeneratedFilter(cmd, idx)
 
 			violations := lint.Evaluate(idx, rules)
+
+			// When defaults are enabled, include built-in secrets detection patterns.
+			if useDefaults {
+				patterns = append(patterns, lint.SecretsPatterns()...)
+			}
+
 			patternViolations, err := lint.EvaluatePatterns(idx, patterns)
 			if err != nil {
 				return err
