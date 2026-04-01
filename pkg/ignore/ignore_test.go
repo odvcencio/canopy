@@ -50,6 +50,19 @@ func TestMatch_DirectoryPattern(t *testing.T) {
 	if !m.Match("project/build", true) {
 		t.Error("expected match on nested directory")
 	}
+	if !m.Match("project/build/output/app.js", false) {
+		t.Error("expected match on file within ignored directory")
+	}
+}
+
+func TestMatch_DirectoryPatternWithSlashMatchesDescendants(t *testing.T) {
+	m := ParsePatterns([]string{"sdks/rust/target/"})
+	if !m.Match("sdks/rust/target/debug/build/out.rs", false) {
+		t.Error("expected path-scoped directory pattern to match descendant file")
+	}
+	if m.Match("sdks/rust/src/lib.rs", false) {
+		t.Error("unexpected match outside ignored directory")
+	}
 }
 
 func TestMatch_Negation(t *testing.T) {

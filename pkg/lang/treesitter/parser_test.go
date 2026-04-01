@@ -4,14 +4,74 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
 	"github.com/odvcencio/gts-suite/pkg/model"
 )
+
+func TestSafeParseCallRecoversPanics(t *testing.T) {
+	tree, err := safeParseCall("rust", func() (*gotreesitter.Tree, error) {
+		panic("boom")
+	})
+	if err == nil {
+		t.Fatal("expected panic to be converted to error")
+	}
+	if tree != nil {
+		t.Fatal("expected no tree on recovered panic")
+	}
+	if !strings.Contains(err.Error(), "gotreesitter panic in rust parser") {
+		t.Fatalf("unexpected error %q", err)
+	}
+}
+
+func TestParseBoundTreeMatchesParseWithTree(t *testing.T) {
+	entry := findEntryByExtension(t, ".go")
+	parser, err := NewParser(entry)
+	if err != nil {
+		t.Fatalf("NewParser returned error: %v", err)
+	}
+
+	source := []byte(`package demo
+
+import "fmt"
+
+type Service struct{}
+
+func (s *Service) Run() {
+	fmt.Println("ok")
+}
+`)
+
+	expected, tree, err := parser.ParseWithTree("main.go", source)
+	if err != nil {
+		t.Fatalf("ParseWithTree returned error: %v", err)
+	}
+	if tree == nil {
+		t.Fatal("expected tree")
+	}
+	defer tree.Release()
+
+	got, err := parser.ParseBoundTree("main.go", gotreesitter.Bind(tree))
+	if err != nil {
+		t.Fatalf("ParseBoundTree returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(got.Imports, expected.Imports) {
+		t.Fatalf("imports = %#v, want %#v", got.Imports, expected.Imports)
+	}
+	if !reflect.DeepEqual(got.Symbols, expected.Symbols) {
+		t.Fatalf("symbols = %#v, want %#v", got.Symbols, expected.Symbols)
+	}
+	if !reflect.DeepEqual(got.References, expected.References) {
+		t.Fatalf("references = %#v, want %#v", got.References, expected.References)
+	}
+}
 
 func TestParseGoSymbolsAndImports(t *testing.T) {
 	entry := findEntryByExtension(t, ".go")

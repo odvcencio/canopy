@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
 	"github.com/odvcencio/gts-suite/pkg/generated"
@@ -211,6 +212,17 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 
 	// Build the gateway policy.
 	policy := grammars.DefaultPolicy()
+	for dir := range DefaultSkipDirs() {
+		policy.SkipDirs = append(policy.SkipDirs, dir)
+	}
+	// DefaultPolicy uses GOMAXPROCS when GTS_MAX_CONCURRENT is unset, which is
+	// too aggressive for large mixed-language repos and can drive multi-GB RSS
+	// spikes. Keep indexing serialized by default; callers can still opt back
+	// into higher fanout explicitly via GTS_MAX_CONCURRENT.
+	if os.Getenv("GTS_MAX_CONCURRENT") == "" {
+		policy.MaxConcurrent = 1
+		policy.ChannelBuffer = 2
+	}
 	policy.ShouldParse = func(absPath string, size int64, modTime time.Time) bool {
 		// Skip files inside hidden directories (dot-prefixed), matching
 		// the old collectCandidates behaviour.
@@ -342,7 +354,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 			continue
 		}
 
-		summary, parseErr := parser.Parse(file.Path, file.Source)
+		summary, parseErr := parseIndexedFile(parser, file.Path, file.Source, file.Tree)
 
 		// Run generated-file detection before Close(), which nils Source.
 		var genInfo *model.GeneratedInfo
@@ -402,6 +414,24 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		return index, stats, ctxErr
 	}
 	return index, stats, nil
+}
+
+type indexTreesitterParser interface {
+	TreesitterParser() (*treesitter.Parser, error)
+}
+
+func parseIndexedFile(parser lang.Parser, path string, source []byte, tree *gotreesitter.BoundTree) (model.FileSummary, error) {
+	if tsParser, ok := parser.(*treesitter.Parser); ok && tree != nil {
+		return tsParser.ParseBoundTree(path, tree)
+	}
+	if lazy, ok := parser.(indexTreesitterParser); ok && tree != nil {
+		tsParser, err := lazy.TreesitterParser()
+		if err != nil {
+			return model.FileSummary{}, err
+		}
+		return tsParser.ParseBoundTree(path, tree)
+	}
+	return parser.Parse(path, source)
 }
 
 // buildSingleFile handles the single-file indexing path (when the target is

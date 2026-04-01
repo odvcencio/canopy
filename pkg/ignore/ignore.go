@@ -78,14 +78,49 @@ func (m *Matcher) Match(path string, isDir bool) bool {
 	ignored := false
 
 	for _, p := range m.patterns {
-		if p.dirOnly && !isDir {
-			continue
-		}
-		if matchPattern(p.glob, path) {
+		if matchesPattern(p, path, isDir) {
 			ignored = !p.negated
 		}
 	}
 	return ignored
+}
+
+func matchesPattern(p pattern, path string, isDir bool) bool {
+	if p.dirOnly {
+		return matchDirectoryPattern(p.glob, path, isDir)
+	}
+	return matchPattern(p.glob, path)
+}
+
+func matchDirectoryPattern(glob, path string, isDir bool) bool {
+	if isDir {
+		return matchPattern(glob, path)
+	}
+
+	for _, dir := range ancestorDirectories(path) {
+		if matchPattern(glob, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+func ancestorDirectories(path string) []string {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	if path == "" || path == "." {
+		return nil
+	}
+
+	parts := strings.Split(path, "/")
+	if len(parts) <= 1 {
+		return nil
+	}
+
+	dirs := make([]string, 0, len(parts)-1)
+	for i := 1; i < len(parts); i++ {
+		dirs = append(dirs, strings.Join(parts[:i], "/"))
+	}
+	return dirs
 }
 
 // matchPattern checks whether a gitignore glob matches the given path.

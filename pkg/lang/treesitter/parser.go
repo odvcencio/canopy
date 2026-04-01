@@ -75,6 +75,23 @@ func (p *Parser) Parse(path string, src []byte) (model.FileSummary, error) {
 	return summary, err
 }
 
+// ParseBoundTree builds a structural summary from an existing bound tree
+// without reparsing the source.
+func (p *Parser) ParseBoundTree(path string, tree *gotreesitter.BoundTree) (model.FileSummary, error) {
+	summary := model.FileSummary{
+		Path:     path,
+		Language: p.Language(),
+	}
+	if tree == nil || tree.RootNode() == nil {
+		return summary, nil
+	}
+	src := tree.Source()
+	if len(src) == 0 {
+		return summary, nil
+	}
+	return p.buildSummaryFromRoot(path, src, tree.RootNode()), nil
+}
+
 // ParseWithTree parses a source file and returns its structural summary along with the AST.
 func (p *Parser) ParseWithTree(path string, src []byte) (model.FileSummary, *gotreesitter.Tree, error) {
 	summary := model.FileSummary{
@@ -158,23 +175,33 @@ func (p *Parser) parseIncrementalTree(path string, src []byte, oldTree *gotreesi
 }
 
 func (p *Parser) buildSummaryFromTree(path string, src []byte, tree *gotreesitter.Tree) model.FileSummary {
+	if tree == nil {
+		return model.FileSummary{
+			Path:     path,
+			Language: p.Language(),
+		}
+	}
+	return p.buildSummaryFromRoot(path, src, tree.RootNode())
+}
+
+func (p *Parser) buildSummaryFromRoot(path string, src []byte, root *gotreesitter.Node) model.FileSummary {
 	summary := model.FileSummary{
 		Path:     path,
 		Language: p.Language(),
 	}
-	tags := p.extractTags(tree, src)
-	summary.Imports = p.extractImports(tree, src)
-	summary.Symbols = p.extractSymbols(src, tree, tags)
+	tags := p.extractTags(root, src)
+	summary.Imports = p.extractImports(root, src)
+	summary.Symbols = p.extractSymbols(src, root, tags)
 	summary.References = p.extractReferences(tags)
 	return summary
 }
 
-func (p *Parser) extractTags(tree *gotreesitter.Tree, src []byte) []gotreesitter.Tag {
-	if tree == nil || tree.RootNode() == nil || p.tagsQuery == nil {
+func (p *Parser) extractTags(root *gotreesitter.Node, src []byte) []gotreesitter.Tag {
+	if root == nil || p.tagsQuery == nil {
 		return nil
 	}
 
-	matches := p.tagsQuery.ExecuteNode(tree.RootNode(), p.lang, src)
+	matches := p.tagsQuery.ExecuteNode(root, p.lang, src)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -230,7 +257,9 @@ func (p *Parser) parseTree(src []byte) (*gotreesitter.Tree, error) {
 	if p.entry.TokenSourceFactory != nil {
 		ts := p.entry.TokenSourceFactory(src, p.lang)
 		if ts != nil {
-			tree, err := parser.ParseWithTokenSource(src, ts)
+			tree, err := safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
+				return parser.ParseWithTokenSource(src, ts)
+			})
 			if err == nil && tree != nil && tree.RootNode() != nil && strings.TrimSpace(tree.RootNode().Type(p.lang)) != "" {
 				return tree, nil
 			}
@@ -239,7 +268,9 @@ func (p *Parser) parseTree(src []byte) (*gotreesitter.Tree, error) {
 			}
 		}
 	}
-	return parser.Parse(src)
+	return safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
+		return parser.Parse(src)
+	})
 }
 
 func (p *Parser) parseTreeIncremental(src []byte, oldTree *gotreesitter.Tree) (*gotreesitter.Tree, error) {
@@ -253,7 +284,9 @@ func (p *Parser) parseTreeIncremental(src []byte, oldTree *gotreesitter.Tree) (*
 	if p.entry.TokenSourceFactory != nil {
 		ts := p.entry.TokenSourceFactory(src, p.lang)
 		if ts != nil {
-			tree, err := parser.ParseIncrementalWithTokenSource(src, oldTree, ts)
+			tree, err := safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
+				return parser.ParseIncrementalWithTokenSource(src, oldTree, ts)
+			})
 			if err == nil && tree != nil && tree.RootNode() != nil && strings.TrimSpace(tree.RootNode().Type(p.lang)) != "" {
 				return tree, nil
 			}
@@ -262,7 +295,22 @@ func (p *Parser) parseTreeIncremental(src []byte, oldTree *gotreesitter.Tree) (*
 			}
 		}
 	}
-	return parser.ParseIncremental(src, oldTree)
+	return safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
+		return parser.ParseIncremental(src, oldTree)
+	})
+}
+
+func safeParseCall(language string, fn func() (*gotreesitter.Tree, error)) (tree *gotreesitter.Tree, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if tree != nil {
+				tree.Release()
+				tree = nil
+			}
+			err = fmt.Errorf("gotreesitter panic in %s parser: %v", language, r)
+		}
+	}()
+	return fn()
 }
 
 func (p *Parser) acquireParser() *gotreesitter.Parser {
@@ -308,8 +356,8 @@ func (p *Parser) lockTree(tree *gotreesitter.Tree) func() {
 	}
 }
 
-func (p *Parser) extractImports(tree *gotreesitter.Tree, src []byte) []string {
-	if tree == nil || tree.RootNode() == nil {
+func (p *Parser) extractImports(root *gotreesitter.Node, src []byte) []string {
+	if root == nil {
 		return nil
 	}
 
@@ -322,7 +370,7 @@ func (p *Parser) extractImports(tree *gotreesitter.Tree, src []byte) []string {
 		imports[value] = struct{}{}
 	}
 
-	gotreesitter.Walk(tree.RootNode(), func(node *gotreesitter.Node, depth int) gotreesitter.WalkAction {
+	gotreesitter.Walk(root, func(node *gotreesitter.Node, depth int) gotreesitter.WalkAction {
 		if node == nil {
 			return gotreesitter.WalkContinue
 		}
@@ -355,7 +403,7 @@ func (p *Parser) extractImports(tree *gotreesitter.Tree, src []byte) []string {
 	return values
 }
 
-func (p *Parser) extractSymbols(src []byte, tree *gotreesitter.Tree, tags []gotreesitter.Tag) []model.Symbol {
+func (p *Parser) extractSymbols(src []byte, root *gotreesitter.Node, tags []gotreesitter.Tag) []model.Symbol {
 	if len(tags) == 0 {
 		return nil
 	}
@@ -363,7 +411,7 @@ func (p *Parser) extractSymbols(src []byte, tree *gotreesitter.Tree, tags []gotr
 	symbols := make([]model.Symbol, 0, len(tags))
 	seen := map[string]struct{}{}
 	for _, tag := range tags {
-		symbol, ok := symbolFromTag(src, tree, p.lang, p.entry.Name, tag)
+		symbol, ok := symbolFromTag(src, root, p.lang, p.entry.Name, tag)
 		if !ok {
 			continue
 		}
@@ -427,7 +475,7 @@ func (p *Parser) extractReferences(tags []gotreesitter.Tag) []model.Reference {
 	return references
 }
 
-func symbolFromTag(src []byte, tree *gotreesitter.Tree, lang *gotreesitter.Language, language string, tag gotreesitter.Tag) (model.Symbol, bool) {
+func symbolFromTag(src []byte, root *gotreesitter.Node, lang *gotreesitter.Language, language string, tag gotreesitter.Tag) (model.Symbol, bool) {
 	kind, ok := mapTagKind(tag.Kind)
 	if !ok {
 		return model.Symbol{}, false
@@ -445,7 +493,7 @@ func symbolFromTag(src []byte, tree *gotreesitter.Tree, lang *gotreesitter.Langu
 	}
 
 	signature := summarizeSignature(rawRangeText(src, tag.Range))
-	receiver := inferReceiver(language, kind, signature, tree, lang, src, tag.Range)
+	receiver := inferReceiver(language, kind, signature, root, lang, src, tag.Range)
 
 	return model.Symbol{
 		Kind:      kind,
@@ -572,20 +620,20 @@ func inferGoReceiver(signature string) string {
 	return strings.TrimSpace(rest[:closing])
 }
 
-func inferReceiver(language, kind, signature string, tree *gotreesitter.Tree, lang *gotreesitter.Language, src []byte, rng gotreesitter.Range) string {
+func inferReceiver(language, kind, signature string, root *gotreesitter.Node, lang *gotreesitter.Language, src []byte, rng gotreesitter.Range) string {
 	switch language {
 	case "go":
 		if kind == "method_definition" {
 			return inferGoReceiver(signature)
 		}
 	case "python":
-		return findEnclosingContainerName(tree, lang, src, rng, map[string]bool{"class_definition": true})
+		return findEnclosingContainerName(root, lang, src, rng, map[string]bool{"class_definition": true})
 	case "javascript", "typescript", "tsx":
-		return findEnclosingContainerName(tree, lang, src, rng, map[string]bool{"class_declaration": true, "class": true})
+		return findEnclosingContainerName(root, lang, src, rng, map[string]bool{"class_declaration": true, "class": true})
 	case "java", "c_sharp":
-		return findEnclosingContainerName(tree, lang, src, rng, map[string]bool{"class_declaration": true})
+		return findEnclosingContainerName(root, lang, src, rng, map[string]bool{"class_declaration": true})
 	case "rust":
-		implNode := findEnclosingContainerNode(tree, lang, rng, map[string]bool{"impl_item": true})
+		implNode := findEnclosingContainerNode(root, lang, rng, map[string]bool{"impl_item": true})
 		if implNode == nil {
 			return ""
 		}
@@ -594,21 +642,21 @@ func inferReceiver(language, kind, signature string, tree *gotreesitter.Tree, la
 	return ""
 }
 
-func findEnclosingContainerName(tree *gotreesitter.Tree, lang *gotreesitter.Language, src []byte, rng gotreesitter.Range, nodeTypes map[string]bool) string {
-	node := findEnclosingContainerNode(tree, lang, rng, nodeTypes)
+func findEnclosingContainerName(root *gotreesitter.Node, lang *gotreesitter.Language, src []byte, rng gotreesitter.Range, nodeTypes map[string]bool) string {
+	node := findEnclosingContainerNode(root, lang, rng, nodeTypes)
 	if node == nil {
 		return ""
 	}
 	return firstIdentifierText(node, lang, src)
 }
 
-func findEnclosingContainerNode(tree *gotreesitter.Tree, lang *gotreesitter.Language, rng gotreesitter.Range, nodeTypes map[string]bool) *gotreesitter.Node {
-	if tree == nil || tree.RootNode() == nil || lang == nil {
+func findEnclosingContainerNode(root *gotreesitter.Node, lang *gotreesitter.Language, rng gotreesitter.Range, nodeTypes map[string]bool) *gotreesitter.Node {
+	if root == nil || lang == nil {
 		return nil
 	}
 	var best *gotreesitter.Node
 	var bestSpan uint32
-	gotreesitter.Walk(tree.RootNode(), func(node *gotreesitter.Node, depth int) gotreesitter.WalkAction {
+	gotreesitter.Walk(root, func(node *gotreesitter.Node, depth int) gotreesitter.WalkAction {
 		if node == nil {
 			return gotreesitter.WalkContinue
 		}
