@@ -40,12 +40,26 @@ func NewServiceWithOptions(defaultRoot, defaultCache string, opts ServiceOptions
 }
 
 func (s *Service) Tools() []Tool {
+	var tools []Tool
+	tools = append(tools, searchTools()...)
+	tools = append(tools, graphTools()...)
+	tools = append(tools, analyzeTools()...)
+	tools = append(tools, transformTools()...)
+	for i := range tools {
+		finalizeToolSchema(&tools[i])
+	}
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name < tools[j].Name
+	})
+	return tools
+}
+
+func searchTools() []Tool {
 	stringOrArray := []Property{
 		{Type: "string"},
 		{Type: "array", Items: &Property{Type: "string"}},
 	}
-
-	tools := []Tool{
+	return []Tool{
 		{
 			Name:        "gts_grep",
 			Description: "Run structural selector matches across indexed symbols",
@@ -136,6 +150,40 @@ func (s *Service) Tools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_files",
+			Description: "List indexed files with structural density filters",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string"},
+					"cache":             {Type: "string"},
+					"language":          {Type: "string"},
+					"min_symbols":       {Type: "integer"},
+					"sort":              {Type: "string"},
+					"top":               {Type: "integer"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
+			Name:        "gts_chunk",
+			Description: "Split code into AST-boundary chunks for retrieval/indexing",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string"},
+					"cache":             {Type: "string"},
+					"tokens":            {Type: "integer"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+	}
+}
+
+func graphTools() []Tool {
+	return []Tool{
+		{
 			Name:        "gts_deps",
 			Description: "Analyze dependency graph from structural imports",
 			InputSchema: Schema{
@@ -186,18 +234,30 @@ func (s *Service) Tools() []Tool {
 			}.ToMap(),
 		},
 		{
-			Name:        "gts_chunk",
-			Description: "Split code into AST-boundary chunks for retrieval/indexing",
+			Name:        "gts_bridge",
+			Description: "Map cross-component dependency bridges",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"path":              {Type: "string"},
 					"cache":             {Type: "string"},
-					"tokens":            {Type: "integer"},
+					"top":               {Type: "integer"},
+					"focus":             {Type: "string"},
+					"depth":             {Type: "integer"},
+					"reverse":           {Type: "boolean"},
 					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
 					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
 				},
 			}.ToMap(),
 		},
+	}
+}
+
+func analyzeTools() []Tool {
+	stringOrArray := []Property{
+		{Type: "string"},
+		{Type: "array", Items: &Property{Type: "string"}},
+	}
+	return []Tool{
 		{
 			Name:        "gts_lint",
 			Description: "Run structural lint rules and query-pattern rules against index",
@@ -213,39 +273,6 @@ func (s *Service) Tools() []Tool {
 			}.ToMap(),
 		},
 		{
-			Name:        "gts_refactor",
-			Description: "Apply structural declaration renames (dry-run by default)",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"selector":          {Type: "string"},
-					"new_name":          {Type: "string"},
-					"path":              {Type: "string"},
-					"cache":             {Type: "string"},
-					"engine":            {Type: "string"},
-					"callsites":         {Type: "boolean"},
-					"cross_package":     {Type: "boolean"},
-					"write":             {Type: "boolean"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-				Required: []string{"selector", "new_name"},
-			}.ToMap(),
-		},
-		{
-			Name:        "gts_diff",
-			Description: "Structural diff between two snapshots (path or cache sources)",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"before_path":       {Type: "string"},
-					"before_cache":      {Type: "string"},
-					"after_path":        {Type: "string"},
-					"after_cache":       {Type: "string"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-			}.ToMap(),
-		},
-		{
 			Name:        "gts_stats",
 			Description: "Report structural codebase metrics from an index",
 			InputSchema: Schema{
@@ -253,38 +280,6 @@ func (s *Service) Tools() []Tool {
 					"path":              {Type: "string"},
 					"cache":             {Type: "string"},
 					"top":               {Type: "integer"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-			}.ToMap(),
-		},
-		{
-			Name:        "gts_files",
-			Description: "List indexed files with structural density filters",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"path":              {Type: "string"},
-					"cache":             {Type: "string"},
-					"language":          {Type: "string"},
-					"min_symbols":       {Type: "integer"},
-					"sort":              {Type: "string"},
-					"top":               {Type: "integer"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-			}.ToMap(),
-		},
-		{
-			Name:        "gts_bridge",
-			Description: "Map cross-component dependency bridges",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"path":              {Type: "string"},
-					"cache":             {Type: "string"},
-					"top":               {Type: "integer"},
-					"focus":             {Type: "string"},
-					"depth":             {Type: "integer"},
-					"reverse":           {Type: "boolean"},
 					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
 					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
 				},
@@ -411,13 +406,44 @@ func (s *Service) Tools() []Tool {
 			}.ToMap(),
 		},
 	}
-	for i := range tools {
-		finalizeToolSchema(&tools[i])
+}
+
+func transformTools() []Tool {
+	return []Tool{
+		{
+			Name:        "gts_refactor",
+			Description: "Apply structural declaration renames (dry-run by default)",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"selector":          {Type: "string"},
+					"new_name":          {Type: "string"},
+					"path":              {Type: "string"},
+					"cache":             {Type: "string"},
+					"engine":            {Type: "string"},
+					"callsites":         {Type: "boolean"},
+					"cross_package":     {Type: "boolean"},
+					"write":             {Type: "boolean"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+				Required: []string{"selector", "new_name"},
+			}.ToMap(),
+		},
+		{
+			Name:        "gts_diff",
+			Description: "Structural diff between two snapshots (path or cache sources)",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"before_path":       {Type: "string"},
+					"before_cache":      {Type: "string"},
+					"after_path":        {Type: "string"},
+					"after_cache":       {Type: "string"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
 	}
-	sort.Slice(tools, func(i, j int) bool {
-		return tools[i].Name < tools[j].Name
-	})
-	return tools
 }
 
 func finalizeToolSchema(tool *Tool) {

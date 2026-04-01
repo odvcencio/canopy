@@ -15,6 +15,13 @@ import (
 	"github.com/odvcencio/gts-suite/pkg/query"
 )
 
+// renameTargets holds the context collected during the target-matching phase.
+type renameTargets struct {
+	byFile      map[string][]model.Symbol
+	kindsByName map[string]string
+	dirs        map[string]bool
+}
+
 func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, newName string, opts Options) (Report, error) {
 	report := Report{
 		Root:                  idx.Root,
@@ -26,9 +33,32 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		CrossPackageCallsites: opts.CrossPackageCallsites,
 	}
 
-	targetsByFile := map[string][]model.Symbol{}
-	targetKindsByName := map[string]string{}
-	targetDirs := map[string]bool{}
+	targets := collectRenameTargets(idx, selector, newName, &report)
+	if len(targets.byFile) == 0 {
+		return report, nil
+	}
+
+	plannedByFile, absByFile, sourceByFile, targetMatched, err := planRenameEdits(idx, targets, newName, opts, &report)
+	if err != nil {
+		return report, err
+	}
+
+	appendUnmatchedTargets(targets, targetMatched, newName, &report)
+
+	if err := applyPlannedEdits(plannedByFile, absByFile, sourceByFile, opts, &report); err != nil {
+		return report, err
+	}
+
+	sortReportEdits(&report)
+	return report, nil
+}
+
+func collectRenameTargets(idx *model.Index, selector query.Selector, newName string, report *Report) renameTargets {
+	targets := renameTargets{
+		byFile:      map[string][]model.Symbol{},
+		kindsByName: map[string]string{},
+		dirs:        map[string]bool{},
+	}
 
 	for _, file := range idx.Files {
 		for _, symbol := range file.Symbols {
@@ -64,16 +94,15 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 				})
 				continue
 			}
-			targetsByFile[symbol.File] = append(targetsByFile[symbol.File], symbol)
-			targetKindsByName[symbol.Name] = symbol.Kind
-			targetDirs[packageFromFilePath(symbol.File)] = true
+			targets.byFile[symbol.File] = append(targets.byFile[symbol.File], symbol)
+			targets.kindsByName[symbol.Name] = symbol.Kind
+			targets.dirs[packageFromFilePath(symbol.File)] = true
 		}
 	}
+	return targets
+}
 
-	if len(targetsByFile) == 0 {
-		return report, nil
-	}
-
+func planRenameEdits(idx *model.Index, targets renameTargets, newName string, opts Options, report *Report) (map[string][]Edit, map[string]string, map[string][]byte, map[string]bool, error) {
 	entriesByExt := languageEntriesByExt()
 	taggerByLanguage := map[string]*gotreesitter.Tagger{}
 
@@ -85,8 +114,8 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 
 	for _, file := range idx.Files {
 		relPath := filepath.ToSlash(filepath.Clean(file.Path))
-		hasTargets := len(targetsByFile[relPath]) > 0
-		inTargetDir := targetDirs[packageFromFilePath(relPath)]
+		hasTargets := len(targets.byFile[relPath]) > 0
+		inTargetDir := targets.dirs[packageFromFilePath(relPath)]
 		if !hasTargets {
 			if !opts.UpdateCallsites {
 				continue
@@ -108,7 +137,7 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		absPath := filepath.Join(idx.Root, filepath.FromSlash(relPath))
 		source, err := os.ReadFile(absPath)
 		if err != nil {
-			return report, err
+			return nil, nil, nil, nil, err
 		}
 		absByFile[relPath] = absPath
 		sourceByFile[relPath] = source
@@ -117,75 +146,82 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		if err != nil {
 			continue
 		}
-		tags := tagger.Tag(source)
-		for _, tag := range tags {
-			if tag.NameRange.StartByte >= tag.NameRange.EndByte {
-				continue
-			}
-			name := strings.TrimSpace(tag.Name)
-			if name == "" || name == newName {
-				continue
-			}
-
-			line := int(tag.NameRange.StartPoint.Row) + 1
-			column := int(tag.NameRange.StartPoint.Column) + 1
-			offset := int(tag.NameRange.StartByte)
-
-			if kind, ok := declarationKindFromTag(tag.Kind); ok {
-				if !hasTargets {
-					continue
-				}
-				for _, target := range targetsByFile[relPath] {
-					if target.Kind != kind || target.Name != name {
-						continue
-					}
-					if line < target.StartLine || line > target.EndLine {
-						continue
-					}
-					edit := Edit{
-						File:     relPath,
-						Kind:     target.Kind,
-						Category: "declaration",
-						OldName:  name,
-						NewName:  newName,
-						Line:     line,
-						Column:   column,
-						Offset:   offset,
-					}
-					if appendPlannedEdit(plannedByFile, seen, edit) {
-						report.PlannedDeclEdits++
-					}
-					targetMatched[targetMatchKey(target)] = true
-				}
-				continue
-			}
-
-			if !opts.UpdateCallsites || !strings.HasPrefix(tag.Kind, "reference.") {
-				continue
-			}
-			kind, ok := targetKindsByName[name]
-			if !ok {
-				continue
-			}
-
-			edit := Edit{
-				File:     relPath,
-				Kind:     kind,
-				Category: "callsite",
-				OldName:  name,
-				NewName:  newName,
-				Line:     line,
-				Column:   column,
-				Offset:   offset,
-			}
-			if appendPlannedEdit(plannedByFile, seen, edit) {
-				report.PlannedUseEdits++
-			}
-		}
+		collectTagEdits(tagger.Tag(source), relPath, hasTargets, targets, newName, opts, plannedByFile, seen, targetMatched, report)
 	}
 
-	for _, targets := range targetsByFile {
-		for _, target := range targets {
+	return plannedByFile, absByFile, sourceByFile, targetMatched, nil
+}
+
+func collectTagEdits(tags []gotreesitter.Tag, relPath string, hasTargets bool, targets renameTargets, newName string, opts Options, plannedByFile map[string][]Edit, seen map[string]bool, targetMatched map[string]bool, report *Report) {
+	for _, tag := range tags {
+		if tag.NameRange.StartByte >= tag.NameRange.EndByte {
+			continue
+		}
+		name := strings.TrimSpace(tag.Name)
+		if name == "" || name == newName {
+			continue
+		}
+
+		line := int(tag.NameRange.StartPoint.Row) + 1
+		column := int(tag.NameRange.StartPoint.Column) + 1
+		offset := int(tag.NameRange.StartByte)
+
+		if kind, ok := declarationKindFromTag(tag.Kind); ok {
+			if !hasTargets {
+				continue
+			}
+			for _, target := range targets.byFile[relPath] {
+				if target.Kind != kind || target.Name != name {
+					continue
+				}
+				if line < target.StartLine || line > target.EndLine {
+					continue
+				}
+				edit := Edit{
+					File:     relPath,
+					Kind:     target.Kind,
+					Category: "declaration",
+					OldName:  name,
+					NewName:  newName,
+					Line:     line,
+					Column:   column,
+					Offset:   offset,
+				}
+				if appendPlannedEdit(plannedByFile, seen, edit) {
+					report.PlannedDeclEdits++
+				}
+				targetMatched[targetMatchKey(target)] = true
+			}
+			continue
+		}
+
+		if !opts.UpdateCallsites || !strings.HasPrefix(tag.Kind, "reference.") {
+			continue
+		}
+		kind, ok := targets.kindsByName[name]
+		if !ok {
+			continue
+		}
+
+		edit := Edit{
+			File:     relPath,
+			Kind:     kind,
+			Category: "callsite",
+			OldName:  name,
+			NewName:  newName,
+			Line:     line,
+			Column:   column,
+			Offset:   offset,
+		}
+		if appendPlannedEdit(plannedByFile, seen, edit) {
+			report.PlannedUseEdits++
+		}
+	}
+}
+
+func appendUnmatchedTargets(targets renameTargets, targetMatched map[string]bool, newName string, report *Report) {
+	for _, tgts := range targets.byFile {
+		for _, target := range tgts {
 			if targetMatched[targetMatchKey(target)] {
 				continue
 			}
@@ -202,7 +238,9 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 			})
 		}
 	}
+}
 
+func applyPlannedEdits(plannedByFile map[string][]Edit, absByFile map[string]string, sourceByFile map[string][]byte, opts Options, report *Report) error {
 	report.PlannedEdits = report.PlannedDeclEdits + report.PlannedUseEdits
 	fileKeys := make([]string, 0, len(plannedByFile))
 	for file := range plannedByFile {
@@ -230,13 +268,13 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		}
 		updated, applied, err := applySourceEdits(sourceByFile[relPath], edits)
 		if err != nil {
-			return report, err
+			return err
 		}
 		if applied == 0 {
 			continue
 		}
 		if err := os.WriteFile(absByFile[relPath], updated, 0o644); err != nil {
-			return report, err
+			return err
 		}
 		report.ChangedFiles++
 		report.AppliedEdits += applied
@@ -244,7 +282,10 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 			report.Edits[idx].Applied = true
 		}
 	}
+	return nil
+}
 
+func sortReportEdits(report *Report) {
 	sort.Slice(report.Edits, func(i, j int) bool {
 		if report.Edits[i].File == report.Edits[j].File {
 			if report.Edits[i].Line == report.Edits[j].Line {
@@ -257,7 +298,6 @@ func renameDeclarationsTreeSitter(idx *model.Index, selector query.Selector, new
 		}
 		return report.Edits[i].File < report.Edits[j].File
 	})
-	return report, nil
 }
 
 func treeSitterTagger(entry grammars.LangEntry, cache map[string]*gotreesitter.Tagger) (*gotreesitter.Tagger, error) {

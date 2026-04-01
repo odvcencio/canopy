@@ -343,116 +343,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 
 	results, statsFn := grammars.WalkAndParse(ctx, root, policy)
 	for file := range results {
-		relPath, relErr := filepath.Rel(root, file.Path)
-		if relErr != nil {
-			relPath = file.Path
-		}
-		relPath = filepath.ToSlash(relPath)
-
-		stats.CandidateFiles++
-
-		parser, ok := b.parserForPath(file.Path)
-		if !ok {
-			file.Close()
-			continue
-		}
-
-		if file.Err != nil && !file.IsRead {
-			parseErr := model.ParseError{
-				Path:  relPath,
-				Error: file.Err.Error(),
-			}
-			errorsByPath[relPath] = parseErr
-			emitBuildEvent(opts, BuildEvent{
-				Kind:       BuildEventError,
-				Path:       relPath,
-				ParseError: parseErr,
-				Stats:      stats,
-			})
-			file.Close()
-			continue
-		}
-
-		// Fast path: file was read but tree-sitter parse was skipped
-		// (SkipTreeParse hook returned true). Use regex extraction.
-		if file.Tree == nil && file.IsRead && file.Err == nil {
-			summary := generated.FastExtractSymbols(relPath, file.Source, parser.Language())
-			summary.Path = relPath
-			summary.SizeBytes = file.Size
-			summary.Language = parser.Language()
-			if b.detector != nil {
-				summary.Generated = b.detector.Detect(relPath, file.Source)
-			}
-			if fi, statErr := os.Stat(file.Path); statErr == nil {
-				summary.ModTimeUnixNano = fi.ModTime().UnixNano()
-			}
-			for i := range summary.Symbols {
-				summary.Symbols[i].File = relPath
-			}
-			file.Close()
-			filesByPath[relPath] = summary
-			stats.ParsedFiles++
-			emitBuildEvent(opts, BuildEvent{
-				Kind:    BuildEventParsed,
-				Path:    relPath,
-				Summary: summary,
-				Stats:   stats,
-			})
-			continue
-		}
-
-		summary, parseErr := parseIndexedFile(parser, file.Path, file.Source, file.Tree)
-
-		// Run generated-file detection before Close(), which nils Source.
-		var genInfo *model.GeneratedInfo
-		if b.detector != nil {
-			genInfo = b.detector.Detect(relPath, file.Source)
-		}
-		file.Close()
-
-		if parseErr != nil {
-			parseFailure := model.ParseError{
-				Path:  relPath,
-				Error: parseErr.Error(),
-			}
-			errorsByPath[relPath] = parseFailure
-			emitBuildEvent(opts, BuildEvent{
-				Kind:       BuildEventError,
-				Path:       relPath,
-				ParseError: parseFailure,
-				Stats:      stats,
-			})
-			continue
-		}
-
-		summary.Path = relPath
-		summary.SizeBytes = file.Size
-		summary.ModTimeUnixNano = 0 // filled below from stat
-		summary.Language = parser.Language()
-
-		// Get mod time from disk for the summary.
-		if fi, statErr := os.Stat(file.Path); statErr == nil {
-			summary.ModTimeUnixNano = fi.ModTime().UnixNano()
-		}
-
-		for i := range summary.Symbols {
-			summary.Symbols[i].File = relPath
-		}
-		for i := range summary.References {
-			summary.References[i].File = relPath
-		}
-
-		summary.Generated = genInfo
-
-		delete(errorsByPath, relPath)
-		filesByPath[relPath] = summary
-		stats.ParsedFiles++
-		emitBuildEvent(opts, BuildEvent{
-			Kind:    BuildEventParsed,
-			Path:    relPath,
-			Summary: summary,
-			Stats:   stats,
-		})
+		b.processWalkedFile(file, root, filesByPath, errorsByPath, &stats, opts)
 	}
 	_ = statsFn()
 
@@ -466,6 +357,119 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		return index, stats, ctxErr
 	}
 	return index, stats, nil
+}
+
+func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
+	relPath, relErr := filepath.Rel(root, file.Path)
+	if relErr != nil {
+		relPath = file.Path
+	}
+	relPath = filepath.ToSlash(relPath)
+
+	stats.CandidateFiles++
+
+	parser, ok := b.parserForPath(file.Path)
+	if !ok {
+		file.Close()
+		return
+	}
+
+	if file.Err != nil && !file.IsRead {
+		parseErr := model.ParseError{
+			Path:  relPath,
+			Error: file.Err.Error(),
+		}
+		errorsByPath[relPath] = parseErr
+		emitBuildEvent(opts, BuildEvent{
+			Kind:       BuildEventError,
+			Path:       relPath,
+			ParseError: parseErr,
+			Stats:      *stats,
+		})
+		file.Close()
+		return
+	}
+
+	// Fast path: file was read but tree-sitter parse was skipped
+	// (SkipTreeParse hook returned true). Use regex extraction.
+	if file.Tree == nil && file.IsRead && file.Err == nil {
+		summary := generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+		summary.Path = relPath
+		summary.SizeBytes = file.Size
+		summary.Language = parser.Language()
+		if b.detector != nil {
+			summary.Generated = b.detector.Detect(relPath, file.Source)
+		}
+		if fi, statErr := os.Stat(file.Path); statErr == nil {
+			summary.ModTimeUnixNano = fi.ModTime().UnixNano()
+		}
+		for i := range summary.Symbols {
+			summary.Symbols[i].File = relPath
+		}
+		file.Close()
+		filesByPath[relPath] = summary
+		stats.ParsedFiles++
+		emitBuildEvent(opts, BuildEvent{
+			Kind:    BuildEventParsed,
+			Path:    relPath,
+			Summary: summary,
+			Stats:   *stats,
+		})
+		return
+	}
+
+	summary, parseErr := parseIndexedFile(parser, file.Path, file.Source, file.Tree)
+
+	// Run generated-file detection before Close(), which nils Source.
+	var genInfo *model.GeneratedInfo
+	if b.detector != nil {
+		genInfo = b.detector.Detect(relPath, file.Source)
+	}
+	file.Close()
+
+	if parseErr != nil {
+		parseFailure := model.ParseError{
+			Path:  relPath,
+			Error: parseErr.Error(),
+		}
+		errorsByPath[relPath] = parseFailure
+		emitBuildEvent(opts, BuildEvent{
+			Kind:       BuildEventError,
+			Path:       relPath,
+			ParseError: parseFailure,
+			Stats:      *stats,
+		})
+		return
+	}
+
+	summary.Path = relPath
+	summary.SizeBytes = file.Size
+	summary.ModTimeUnixNano = 0 // filled below from stat
+	summary.Language = parser.Language()
+
+	// Get mod time from disk for the summary.
+	if fi, statErr := os.Stat(file.Path); statErr == nil {
+		summary.ModTimeUnixNano = fi.ModTime().UnixNano()
+	}
+
+	for i := range summary.Symbols {
+		summary.Symbols[i].File = relPath
+	}
+	for i := range summary.References {
+		summary.References[i].File = relPath
+	}
+
+	summary.Generated = genInfo
+
+	delete(errorsByPath, relPath)
+	filesByPath[relPath] = summary
+	stats.ParsedFiles++
+	emitBuildEvent(opts, BuildEvent{
+		Kind:    BuildEventParsed,
+		Path:    relPath,
+		Summary: summary,
+		Stats:   *stats,
+	})
 }
 
 type indexTreesitterParser interface {
