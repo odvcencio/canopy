@@ -7,6 +7,8 @@ github.com/odvcencio/gotreesitter v0.10.0 h1:JqkkMFv8UwWMogr0VEmMMgcv2fllfrMIone
 github.com/odvcencio/gotreesitter v0.10.0/go.mod h1:Sx+iYJBfw5xSWkSttLSuFvguJctlH+ma1BTxZ0MPCqo=
 github.com/odvcencio/gotreesitter v0.12.1 h1:bJI2ZH6K/A8Vdqqa+ilA6+V82JQ3wyCRlHsFEIKTSIY=
 github.com/odvcencio/gotreesitter v0.12.1/go.mod h1:Sx+iYJBfw5xSWkSttLSuFvguJctlH+ma1BTxZ0MPCqo=
+github.com/odvcencio/gotreesitter v0.13.0 h1:y2CuuMjh88r648IQQph4mDbt0i3cA6G6ZKt8hUq5Y4g=
+github.com/odvcencio/gotreesitter v0.13.0/go.mod h1:Sx+iYJBfw5xSWkSttLSuFvguJctlH+ma1BTxZ0MPCqo=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
 github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=

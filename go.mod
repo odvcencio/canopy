@@ -4,7 +4,7 @@ go 1.25
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/odvcencio/gotreesitter v0.12.1
+	github.com/odvcencio/gotreesitter v0.13.0
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -13,5 +13,3 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 )
-
-replace github.com/odvcencio/gotreesitter => /home/draco/work/gotreesitter
