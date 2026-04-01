@@ -483,6 +483,19 @@ func transformTools() []Tool {
 				},
 			}.ToMap(),
 		},
+		{
+			Name:        "gts_sbom",
+			Description: "Generate CycloneDX 1.5 SBOM from structural index with optional capability enrichment",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":                   {Type: "string", Description: "index root path"},
+					"cache":                  {Type: "string", Description: "index cache path"},
+					"include_capabilities":   {Type: "boolean", Description: "enrich components with capability tags (default: false)"},
+					"include_generated":      {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":              {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
 	}
 }
 
@@ -619,6 +632,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callReachability(args)
 	case "gts_drift":
 		return s.callDrift(args)
+	case "gts_sbom":
+		return s.callSBOM(args)
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
