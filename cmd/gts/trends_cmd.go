@@ -65,7 +65,7 @@ func newTrendsRecordCmd() *cobra.Command {
 			}
 
 			// Build or load the index.
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}

@@ -51,6 +51,7 @@ Get started:
 	root.PersistentFlags().Bool("include-generated", false, "include generated files in analysis output")
 	root.PersistentFlags().String("generator", "", "filter to a specific generator name (e.g. protobuf, mockgen, human)")
 	root.PersistentFlags().String("federation", "", "directory containing .gtsindex files for multi-repo federated analysis")
+	root.PersistentFlags().StringSliceP("exclude", "X", nil, "gitignore-style path pattern to exclude from indexing (repeatable; merged with workspace .graftignore/.gtsignore). Bypasses index cache when set.")
 
 	root.AddCommand(
 		newIndexGroup(),

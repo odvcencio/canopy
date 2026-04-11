@@ -64,13 +64,13 @@ func newDriftCmd() *cobra.Command {
 			}
 
 			// 1. Build HEAD index using existing loadOrBuild.
-			headIdx, err := loadOrBuild(cachePath, target, noCache)
+			headIdx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return fmt.Errorf("building HEAD index: %w", err)
 			}
 
 			// 2. Build base index via temporary worktree.
-			baseIdx, err := buildBaseIndex(absTarget, base)
+			baseIdx, err := buildBaseIndex(cmd, absTarget, base)
 			if err != nil {
 				return fmt.Errorf("building base index: %w", err)
 			}
@@ -160,7 +160,7 @@ func newDriftCmd() *cobra.Command {
 
 // buildBaseIndex creates a temporary git worktree for the given ref, builds an
 // index from it, and cleans up the worktree.
-func buildBaseIndex(repoDir, ref string) (*model.Index, error) {
+func buildBaseIndex(cmd *cobra.Command, repoDir, ref string) (*model.Index, error) {
 	tmpDir, err := os.MkdirTemp("", "gts-drift-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
@@ -181,7 +181,9 @@ func buildBaseIndex(repoDir, ref string) (*model.Index, error) {
 		_ = rmCmd.Run()
 	}()
 
-	builder, err := index.NewBuilderWithWorkspaceIgnores(worktreePath)
+	// Apply CLI --exclude patterns to the base index too, so drift reports
+	// are comparing apples to apples.
+	builder, err := index.NewBuilderWithWorkspaceIgnoresAndExtras(worktreePath, cmdExcludes(cmd))
 	if err != nil {
 		return nil, fmt.Errorf("creating builder for base: %w", err)
 	}

@@ -82,7 +82,7 @@ func newReviewCmd() *cobra.Command {
 				changedSet[f] = true
 			}
 
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}

@@ -105,7 +105,7 @@ Examples:
 				target = args[0]
 			}
 
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}
@@ -395,7 +395,7 @@ func buildCompareReport(ref, target string, cmd *cobra.Command) (*Report, error)
 	}()
 
 	// Build index at the baseline ref.
-	baseIdx, err := loadOrBuild("", tmpDir, true)
+	baseIdx, err := loadOrBuild(cmd, "", tmpDir, true)
 	if err != nil {
 		return nil, fmt.Errorf("building baseline index: %w", err)
 	}

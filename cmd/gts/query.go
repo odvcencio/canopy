@@ -30,7 +30,7 @@ type queryResult struct {
 	truncated      bool
 }
 
-func executeQuery(args []string, opts queryOpts) error {
+func executeQuery(cmd *cobra.Command, args []string, opts queryOpts) error {
 	queryText := strings.TrimSpace(args[0])
 	if queryText == "" {
 		return errors.New("query pattern cannot be empty")
@@ -40,7 +40,7 @@ func executeQuery(args []string, opts queryOpts) error {
 	if len(args) == 2 {
 		target = args[1]
 	}
-	idx, err := loadOrBuild(opts.cachePath, target, opts.noCache)
+	idx, err := loadOrBuild(cmd, opts.cachePath, target, opts.noCache)
 	if err != nil {
 		return err
 	}
@@ -279,7 +279,7 @@ func newQueryCmd() *cobra.Command {
 		Short:   "Run raw tree-sitter S-expression queries across files",
 		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return executeQuery(args, opts)
+			return executeQuery(cmd, args, opts)
 		},
 	}
 

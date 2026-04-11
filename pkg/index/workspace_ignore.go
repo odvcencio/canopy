@@ -50,9 +50,12 @@ func workspaceIgnoreRoot(target string) (string, error) {
 	return filepath.Dir(abs), nil
 }
 
-// LoadWorkspaceIgnoreMatcher finds the workspace root and loads ignore patterns
-// from .graftignore and .gtsignore files found there.
-func LoadWorkspaceIgnoreMatcher(target string) (*ignore.Matcher, error) {
+// loadWorkspaceIgnoreLines returns the raw ignore pattern lines from the
+// workspace .graftignore/.gtsignore files. Returns nil (no error) when no
+// files are present. Shared between LoadWorkspaceIgnoreMatcher and the
+// builder constructors so CLI-supplied extras can be merged with workspace
+// patterns before parsing.
+func loadWorkspaceIgnoreLines(target string) ([]string, error) {
 	root, err := workspaceIgnoreRoot(target)
 	if err != nil {
 		return nil, err
@@ -70,11 +73,20 @@ func LoadWorkspaceIgnoreMatcher(target string) (*ignore.Matcher, error) {
 		}
 		allPatterns = append(allPatterns, splitLines(string(data))...)
 	}
+	return allPatterns, nil
+}
 
-	if len(allPatterns) == 0 {
+// LoadWorkspaceIgnoreMatcher finds the workspace root and loads ignore patterns
+// from .graftignore and .gtsignore files found there.
+func LoadWorkspaceIgnoreMatcher(target string) (*ignore.Matcher, error) {
+	lines, err := loadWorkspaceIgnoreLines(target)
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) == 0 {
 		return nil, nil
 	}
-	return ignore.ParsePatterns(allPatterns), nil
+	return ignore.ParsePatterns(lines), nil
 }
 
 // splitLines splits s into lines without trailing newlines.
@@ -134,14 +146,33 @@ func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, int, 
 // patterns and generated-file detection from the workspace config files found
 // at or above target.
 func NewBuilderWithWorkspaceIgnores(target string) (*Builder, error) {
+	return NewBuilderWithWorkspaceIgnoresAndExtras(target, nil)
+}
+
+// NewBuilderWithWorkspaceIgnoresAndExtras is like NewBuilderWithWorkspaceIgnores
+// but also merges an additional set of gitignore-style patterns (typically from
+// CLI --exclude flags) with the workspace patterns before attaching them to the
+// builder. Pass nil or an empty slice for behavior identical to
+// NewBuilderWithWorkspaceIgnores.
+//
+// Workspace patterns are always applied first; extras are appended so negation
+// patterns (`!foo`) in extras can override workspace patterns, matching the
+// gitignore precedence rule that later patterns win.
+func NewBuilderWithWorkspaceIgnoresAndExtras(target string, extraPatterns []string) (*Builder, error) {
 	builder := NewBuilder()
-	matcher, err := LoadWorkspaceIgnoreMatcher(target)
+
+	workspaceLines, err := loadWorkspaceIgnoreLines(target)
 	if err != nil {
 		return nil, err
 	}
-	if matcher != nil {
-		builder.SetIgnore(matcher)
+
+	allLines := make([]string, 0, len(workspaceLines)+len(extraPatterns))
+	allLines = append(allLines, workspaceLines...)
+	allLines = append(allLines, extraPatterns...)
+	if len(allLines) > 0 {
+		builder.SetIgnore(ignore.ParsePatterns(allLines))
 	}
+
 	configs, scanDepth, err := LoadWorkspaceGeneratedConfig(target)
 	if err != nil {
 		return nil, err

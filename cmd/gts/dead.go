@@ -51,7 +51,7 @@ Examples:
 
 			var idx *model.Index
 			for i, target := range targets {
-				built, err := loadOrBuild(cachePath, target, noCache)
+				built, err := loadOrBuild(cmd, cachePath, target, noCache)
 				if err != nil {
 					return err
 				}

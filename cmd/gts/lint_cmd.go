@@ -97,7 +97,7 @@ Built-in rules compose with explicit --rule and --pattern flags: all fire togeth
 				}
 			}
 
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}

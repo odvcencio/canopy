@@ -46,7 +46,7 @@ func newImpactCmd() *cobra.Command {
 				}
 			}
 
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}

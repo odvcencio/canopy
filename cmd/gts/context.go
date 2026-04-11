@@ -31,7 +31,7 @@ func newContextCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Concept mode: search symbols and pack context around matches.
 			if concept != "" {
-				idx, err := loadOrBuild(cachePath, rootPath, noCache)
+				idx, err := loadOrBuild(cmd, cachePath, rootPath, noCache)
 				if err != nil {
 					return err
 				}
@@ -64,7 +64,7 @@ func newContextCmd() *cobra.Command {
 				return fmt.Errorf("requires a file argument or --concept flag")
 			}
 			filePath := args[0]
-			idx, err := loadOrBuild(cachePath, rootPath, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, rootPath, noCache)
 			if err != nil {
 				return err
 			}

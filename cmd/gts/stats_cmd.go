@@ -30,7 +30,7 @@ func newStatsCmd() *cobra.Command {
 				target = args[0]
 			}
 
-			idx, err := loadOrBuild(cachePath, target, noCache)
+			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 			if err != nil {
 				return err
 			}

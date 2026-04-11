@@ -299,6 +299,10 @@ func newIndexBuildCmd() *cobra.Command {
 		Short:   "Build a structural index and optionally cache it",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Merge the root-level persistent --exclude flag into this
+			// subcommand's own --ignore list so both paths produce the same
+			// set of ignored files during the build.
+			opts.ignorePatterns = append(opts.ignorePatterns, cmdExcludes(cmd)...)
 			return runIndexBuild(args, opts)
 		},
 	}

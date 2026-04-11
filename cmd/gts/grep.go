@@ -160,7 +160,7 @@ AUTO-DETECTION:
 			case grepModeStructural:
 				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly, limit)
 			case grepModeSelector:
-				return runSelectorGrep(pattern, target, cachePath, noCache, jsonOutput, countOnly, limit)
+				return runSelectorGrep(cmd, pattern, target, cachePath, noCache, jsonOutput, countOnly, limit)
 			default:
 				// Auto resolved to structural above; this shouldn't happen.
 				return runStructuralGrep(pattern, target, lang, where, rewrite, jsonOutput, countOnly, limit)
@@ -182,13 +182,13 @@ AUTO-DETECTION:
 }
 
 // runSelectorGrep runs the original selector-DSL based grep against the structural index.
-func runSelectorGrep(pattern, target, cachePath string, noCache, jsonOutput, countOnly bool, limit int) error {
+func runSelectorGrep(cmd *cobra.Command, pattern, target, cachePath string, noCache, jsonOutput, countOnly bool, limit int) error {
 	selector, err := query.ParseSelector(pattern)
 	if err != nil {
 		return err
 	}
 
-	idx, err := loadOrBuild(cachePath, target, noCache)
+	idx, err := loadOrBuild(cmd, cachePath, target, noCache)
 	if err != nil {
 		return err
 	}

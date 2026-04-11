@@ -34,7 +34,7 @@ func newSimilarityCmd() *cobra.Command {
 			}
 
 			pathA := args[0]
-			idxA, err := loadOrBuild(cacheA, pathA, noCache)
+			idxA, err := loadOrBuild(cmd, cacheA, pathA, noCache)
 			if err != nil {
 				return fmt.Errorf("loading index A: %w", err)
 			}
@@ -44,7 +44,7 @@ func newSimilarityCmd() *cobra.Command {
 			pathB := pathA
 			if len(args) == 2 {
 				pathB = args[1]
-				idxB, err = loadOrBuild(cacheB, pathB, noCache)
+				idxB, err = loadOrBuild(cmd, cacheB, pathB, noCache)
 				if err != nil {
 					return fmt.Errorf("loading index B: %w", err)
 				}
