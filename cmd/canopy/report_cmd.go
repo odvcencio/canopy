@@ -18,6 +18,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/hotspot"
 	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/risk"
 	"github.com/odvcencio/canopy/pkg/smells"
 	"github.com/odvcencio/canopy/pkg/typemetrics"
 	"github.com/odvcencio/canopy/pkg/xref"
@@ -58,6 +59,11 @@ type Report struct {
 
 	// Hotspots (top 5)
 	Hotspots []HotspotEntry `json:"hotspots,omitempty"`
+
+	// Risk
+	MaxRisk          float64  `json:"max_risk,omitempty"`
+	HighRiskCount    int      `json:"high_risk_count,omitempty"`
+	TopRiskFunctions []string `json:"top_risk_functions,omitempty"`
 
 	// Structural Smells
 	SmellsTotal  int `json:"smells_total"`
@@ -326,6 +332,34 @@ Examples:
 				}
 			}
 
+			// --- Risk ---
+			if complexityErr == nil && xrefGraph != nil {
+				enrichedComp := *complexityReport
+				complexity.EnrichWithXref(&enrichedComp, *xrefGraph)
+				testMapLookup := buildTestMapLookup(analysisIdx)
+				riskReport, riskErr := risk.Analyze(risk.Input{
+					Index:      analysisIdx,
+					Root:       target,
+					Complexity: &enrichedComp,
+					XrefGraph:  *xrefGraph,
+					TestMap:    testMapLookup,
+					Since:      "90d",
+				})
+				if riskErr == nil {
+					rpt.MaxRisk = riskReport.Summary.MaxRisk
+					rpt.HighRiskCount = riskReport.Summary.HighRiskCount
+					topN := 3
+					if len(riskReport.Functions) < topN {
+						topN = len(riskReport.Functions)
+					}
+					for i := 0; i < topN; i++ {
+						fn := riskReport.Functions[i]
+						rpt.TopRiskFunctions = append(rpt.TopRiskFunctions,
+							fmt.Sprintf("%s:%s (risk=%.2f)", fn.File, fn.Name, fn.Risk))
+					}
+				}
+			}
+
 			// --- Team breakdown ---
 			if byTeam {
 				ownerRules := loadOwnerRules(target)
@@ -469,6 +503,20 @@ func printMarkdownReport(rpt Report, delta *Report, target string) {
 		printDelta("smell errors", rpt.SmellErrors, delta.SmellErrors)
 	}
 	fmt.Println()
+
+	// Top Risk
+	if rpt.MaxRisk > 0 || rpt.HighRiskCount > 0 {
+		fmt.Println("## Top Risk")
+		fmt.Printf("- Max risk: %.2f\n", rpt.MaxRisk)
+		fmt.Printf("- %d high-risk functions (>0.7)\n", rpt.HighRiskCount)
+		if len(rpt.TopRiskFunctions) > 0 {
+			fmt.Println("- Highest risk functions:")
+			for i, fn := range rpt.TopRiskFunctions {
+				fmt.Printf("  %d. %s\n", i+1, fn)
+			}
+		}
+		fmt.Println()
+	}
 
 	// Hotspots
 	if len(rpt.Hotspots) > 0 {

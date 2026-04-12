@@ -11,6 +11,7 @@ import (
 	"github.com/odvcencio/canopy/internal/lint"
 	"github.com/odvcencio/canopy/pkg/complexity"
 	"github.com/odvcencio/canopy/pkg/coupling"
+	"github.com/odvcencio/canopy/pkg/risk"
 	"github.com/odvcencio/canopy/pkg/sarif"
 	"github.com/odvcencio/canopy/pkg/smells"
 	"github.com/odvcencio/canopy/pkg/typemetrics"
@@ -72,6 +73,7 @@ func newCheckCmd() *cobra.Command {
 		maxFields          int
 		maxInterfaceWidth  int
 		maxSmellsError     int
+		maxRisk            float64
 	)
 
 	cmd := &cobra.Command{
@@ -344,6 +346,56 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
+			// Check 11: Risk score threshold.
+			if maxRisk > 0 {
+				checksRun++
+				// Build complexity report if not already done.
+				var riskCompReport *complexity.Report
+				if maxCyclomatic > 0 || maxCognitive > 0 || maxLines > 0 {
+					// Reuse the complexity report from checks 1-3 if available.
+					if cr, cerr := complexity.Analyze(analysisIdx, analysisIdx.Root, complexity.Options{}); cerr == nil {
+						riskCompReport = cr
+					}
+				} else {
+					if cr, cerr := complexity.Analyze(analysisIdx, analysisIdx.Root, complexity.Options{}); cerr == nil {
+						riskCompReport = cr
+					}
+				}
+
+				if riskCompReport != nil {
+					// Ensure xref graph is available.
+					if !needGraph {
+						graph, graphErr = xref.Build(analysisIdx)
+					}
+					if graphErr == nil {
+						complexity.EnrichWithXref(riskCompReport, graph)
+						testMapLookup := buildTestMapLookup(analysisIdx)
+						riskReport, riskErr := risk.Analyze(risk.Input{
+							Index:      analysisIdx,
+							Root:       target,
+							Complexity: riskCompReport,
+							XrefGraph:  graph,
+							TestMap:    testMapLookup,
+							Since:      "90d",
+						})
+						if riskErr == nil {
+							for _, fn := range riskReport.Functions {
+								if fn.Risk > maxRisk {
+									violations = append(violations, checkViolation{
+										Check:          "risk",
+										File:           fn.File,
+										Name:           fn.Name,
+										Line:           fn.StartLine,
+										FloatValue:     fn.Risk,
+										FloatThreshold: maxRisk,
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+
 			// When --base is set, restrict violations to changed files only.
 			var numChanged int
 			if base != "" {
@@ -454,5 +506,6 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxFields, "max-fields", 0, "max fields per type (0 to disable)")
 	cmd.Flags().IntVar(&maxInterfaceWidth, "max-interface-width", 0, "max interface width (0 to disable)")
 	cmd.Flags().IntVar(&maxSmellsError, "max-smells-error", 0, "max error-severity structural smells (0 to disable)")
+	cmd.Flags().Float64Var(&maxRisk, "max-risk", 0, "max composite risk score per function 0.0-1.0 (0 to disable)")
 	return cmd
 }

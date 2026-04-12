@@ -14,6 +14,7 @@ import (
 
 	"github.com/odvcencio/canopy/pkg/complexity"
 	"github.com/odvcencio/canopy/pkg/coupling"
+	"github.com/odvcencio/canopy/pkg/risk"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
 
@@ -33,6 +34,9 @@ type trendMetrics struct {
 	MaxInstability float64 `json:"max_instability,omitempty"`
 	MaxDistance     float64 `json:"max_distance,omitempty"`
 	MaxLCOM        int     `json:"max_lcom,omitempty"`
+	MaxRisk        float64 `json:"max_risk,omitempty"`
+	P90Risk        float64 `json:"p90_risk,omitempty"`
+	HighRiskCount  int     `json:"high_risk_count,omitempty"`
 }
 
 func newTrendsCmd() *cobra.Command {
@@ -93,11 +97,31 @@ func newTrendsRecordCmd() *cobra.Command {
 			// Run coupling analysis.
 			var maxInstability, maxDistance float64
 			var maxLCOM int
+			var maxRisk, p90Risk float64
+			var highRiskCount int
 			if graph, xrefErr := xref.Build(analysisIdx); xrefErr == nil {
 				if couplingReport, couplingErr := coupling.Analyze(analysisIdx, graph); couplingErr == nil {
 					maxInstability = couplingReport.Summary.MaxInstability
 					maxDistance = couplingReport.Summary.MaxDistance
 					maxLCOM = couplingReport.Summary.MaxLCOM
+				}
+
+				// Run risk analysis.
+				enrichedReport := *report
+				complexity.EnrichWithXref(&enrichedReport, graph)
+				testMapLookup := buildTestMapLookup(analysisIdx)
+				riskReport, riskErr := risk.Analyze(risk.Input{
+					Index:      analysisIdx,
+					Root:       abs,
+					Complexity: &enrichedReport,
+					XrefGraph:  graph,
+					TestMap:    testMapLookup,
+					Since:      "90d",
+				})
+				if riskErr == nil {
+					maxRisk = riskReport.Summary.MaxRisk
+					p90Risk = riskReport.Summary.P90Risk
+					highRiskCount = riskReport.Summary.HighRiskCount
 				}
 			}
 
@@ -116,6 +140,9 @@ func newTrendsRecordCmd() *cobra.Command {
 					MaxInstability: maxInstability,
 					MaxDistance:     maxDistance,
 					MaxLCOM:        maxLCOM,
+					MaxRisk:        maxRisk,
+					P90Risk:        p90Risk,
+					HighRiskCount:  highRiskCount,
 				},
 			}
 
@@ -150,6 +177,9 @@ func newTrendsRecordCmd() *cobra.Command {
 			fmt.Printf("  max_instability: %.2f\n", record.Metrics.MaxInstability)
 			fmt.Printf("  max_distance:    %.2f\n", record.Metrics.MaxDistance)
 			fmt.Printf("  max_lcom:        %d\n", record.Metrics.MaxLCOM)
+			fmt.Printf("  max_risk:        %.2f\n", record.Metrics.MaxRisk)
+			fmt.Printf("  p90_risk:        %.2f\n", record.Metrics.P90Risk)
+			fmt.Printf("  high_risk_count: %d\n", record.Metrics.HighRiskCount)
 			return nil
 		},
 	}
@@ -234,6 +264,9 @@ func newTrendsShowCmd() *cobra.Command {
 			printFloatTrendLine("max_instability", first.Metrics.MaxInstability, last.Metrics.MaxInstability)
 			printFloatTrendLine("max_distance", first.Metrics.MaxDistance, last.Metrics.MaxDistance)
 			printTrendLine("max_lcom", first.Metrics.MaxLCOM, last.Metrics.MaxLCOM)
+			printFloatTrendLine("max_risk", first.Metrics.MaxRisk, last.Metrics.MaxRisk)
+			printFloatTrendLine("p90_risk", first.Metrics.P90Risk, last.Metrics.P90Risk)
+			printTrendLine("high_risk_count", first.Metrics.HighRiskCount, last.Metrics.HighRiskCount)
 			return nil
 		},
 	}

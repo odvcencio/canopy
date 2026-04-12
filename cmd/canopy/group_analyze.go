@@ -26,6 +26,7 @@ governance, capability detection, and executive reporting.`,
 		newTrendsCmd(),
 		newTypeMetricsCmd(),
 		newSmellsCmd(),
+		newRiskCmd(),
 	)
 	return cmd
 }

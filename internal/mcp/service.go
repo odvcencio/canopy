@@ -525,6 +525,22 @@ func analyzeTools() []Tool {
 				Required: []string{"base"},
 			}.ToMap(),
 		},
+		{
+			Name:        "gts_risk",
+			Description: "Compute composite risk scores from complexity, coupling, churn, and test coverage",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"top":               {Type: "integer", Description: "limit to top N results (default: 20)"},
+					"min_risk":          {Type: "number", Description: "minimum risk score to include (default: 0)"},
+					"since":             {Type: "string", Description: "git log period for churn (e.g. 90d, 6m, 1y; default: 90d)"},
+					"by_package":        {Type: "boolean", Description: "aggregate results by package (default: false)"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
 	}
 }
 
@@ -711,6 +727,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callReview(args)
 	case "gts_services":
 		return s.callServices(args)
+	case "gts_risk":
+		return s.callRisk(args)
 	default:
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
