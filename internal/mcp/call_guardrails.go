@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/boundaries"
-	"github.com/odvcencio/gts-suite/pkg/complexity"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/boundaries"
+	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 type guardrailResult struct {

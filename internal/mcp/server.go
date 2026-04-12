@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const serverName = "gts-suite"
+const serverName = "canopy"
 const serverVersion = "0.1.0"
 const protocolVersion = "2024-11-05"
 

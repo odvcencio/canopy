@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 type mockFeed struct {

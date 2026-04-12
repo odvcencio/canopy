@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 const maxScanLines = 40
@@ -20,7 +20,7 @@ var preamblePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`^\s*\*\s*$`),
 }
 
-// ConfigEntry represents a user-defined generated file pattern from .gtsgenerated.
+// ConfigEntry represents a user-defined generated file pattern from .canopygenerated.
 type ConfigEntry struct {
 	Generator string
 	Pattern   string

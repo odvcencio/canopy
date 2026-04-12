@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/odvcencio/gts-suite/pkg/generated"
-	"github.com/odvcencio/gts-suite/pkg/ignore"
+	"github.com/odvcencio/canopy/pkg/generated"
+	"github.com/odvcencio/canopy/pkg/ignore"
 )
 
 // workspaceIgnoreFiles lists the config files that anchor a workspace root.
-var workspaceIgnoreFiles = []string{".graftignore", ".gtsignore", ".gtsgenerated"}
+var workspaceIgnoreFiles = []string{".graftignore", ".canopyignore", ".canopygenerated"}
 
 // workspaceIgnoreRoot walks up from target (resolved to absolute) looking for a
 // directory containing any of the workspace config files. Returns the directory
@@ -51,7 +51,7 @@ func workspaceIgnoreRoot(target string) (string, error) {
 }
 
 // loadWorkspaceIgnoreLines returns the raw ignore pattern lines from the
-// workspace .graftignore/.gtsignore files. Returns nil (no error) when no
+// workspace .graftignore/.canopyignore files. Returns nil (no error) when no
 // files are present. Shared between LoadWorkspaceIgnoreMatcher and the
 // builder constructors so CLI-supplied extras can be merged with workspace
 // patterns before parsing.
@@ -62,7 +62,7 @@ func loadWorkspaceIgnoreLines(target string) ([]string, error) {
 	}
 
 	var allPatterns []string
-	for _, name := range []string{".graftignore", ".gtsignore"} {
+	for _, name := range []string{".graftignore", ".canopyignore"} {
 		p := filepath.Join(root, name)
 		data, readErr := os.ReadFile(p)
 		if readErr != nil {
@@ -77,7 +77,7 @@ func loadWorkspaceIgnoreLines(target string) ([]string, error) {
 }
 
 // LoadWorkspaceIgnoreMatcher finds the workspace root and loads ignore patterns
-// from .graftignore and .gtsignore files found there.
+// from .graftignore and .canopyignore files found there.
 func LoadWorkspaceIgnoreMatcher(target string) (*ignore.Matcher, error) {
 	lines, err := loadWorkspaceIgnoreLines(target)
 	if err != nil {
@@ -131,7 +131,7 @@ func ComputeConfigHashes(target string) (map[string]string, error) {
 	return hashes, nil
 }
 
-// LoadWorkspaceGeneratedConfig finds the workspace root and loads .gtsgenerated
+// LoadWorkspaceGeneratedConfig finds the workspace root and loads .canopygenerated
 // config entries along with any configured scan depth. Returns nil entries (no
 // error) when the file is absent.
 func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, int, error) {
@@ -139,7 +139,7 @@ func LoadWorkspaceGeneratedConfig(target string) ([]generated.ConfigEntry, int, 
 	if err != nil {
 		return nil, 0, err
 	}
-	return generated.LoadConfigFileWithOptions(filepath.Join(root, ".gtsgenerated"))
+	return generated.LoadConfigFileWithOptions(filepath.Join(root, ".canopygenerated"))
 }
 
 // NewBuilderWithWorkspaceIgnores creates a Builder pre-configured with ignore

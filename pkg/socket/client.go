@@ -7,18 +7,18 @@ import (
 	"net"
 )
 
-// Client connects to a running gtsls socket server.
+// Client connects to a running canopyls socket server.
 type Client struct {
 	conn    net.Conn
 	scanner *bufio.Scanner
 }
 
-// Dial connects to the gtsls socket for the given workspace.
+// Dial connects to the canopyls socket for the given workspace.
 func Dial(workspaceRoot string) (*Client, error) {
 	path := SocketPath(workspaceRoot)
 	conn, err := net.Dial("unix", path)
 	if err != nil {
-		return nil, fmt.Errorf("connect to gtsls socket %s: %w (is gtsls serve running?)", path, err)
+		return nil, fmt.Errorf("connect to canopyls socket %s: %w (is canopyls serve running?)", path, err)
 	}
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)

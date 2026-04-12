@@ -28,7 +28,7 @@ func TestWriteResponse(t *testing.T) {
 	resp := rpcResponse{
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`1`),
-		Result:  map[string]string{"name": "gtsls"},
+		Result:  map[string]string{"name": "canopyls"},
 	}
 	err := writeMessage(&buf, resp)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestWriteResponse(t *testing.T) {
 	if !strings.Contains(got, "Content-Length:") {
 		t.Error("missing Content-Length header")
 	}
-	if !strings.Contains(got, `"name":"gtsls"`) {
+	if !strings.Contains(got, `"name":"canopyls"`) {
 		t.Error("missing response body")
 	}
 }

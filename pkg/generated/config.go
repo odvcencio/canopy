@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ParseConfigLines parses .gtsgenerated content lines into ConfigEntry values.
+// ParseConfigLines parses .canopygenerated content lines into ConfigEntry values.
 // Lines with "generator: pattern" syntax use the named generator.
 // Lines without a colon default to generator "config".
 // Comments (#) and blank lines are skipped.
@@ -17,7 +17,7 @@ func ParseConfigLines(lines []string) []ConfigEntry {
 	return entries
 }
 
-// ParseConfigLinesWithOptions parses .gtsgenerated content lines and also
+// ParseConfigLinesWithOptions parses .canopygenerated content lines and also
 // extracts directive options such as @scan-depth. Returns parsed entries and
 // the configured scan depth (0 means use default).
 func ParseConfigLinesWithOptions(lines []string) ([]ConfigEntry, int) {
@@ -58,14 +58,14 @@ func ParseConfigLinesWithOptions(lines []string) ([]ConfigEntry, int) {
 	return entries, scanDepth
 }
 
-// LoadConfigFile reads a .gtsgenerated file and returns parsed entries.
+// LoadConfigFile reads a .canopygenerated file and returns parsed entries.
 // Returns nil entries (no error) if the file does not exist.
 func LoadConfigFile(path string) ([]ConfigEntry, error) {
 	entries, _, err := LoadConfigFileWithOptions(path)
 	return entries, err
 }
 
-// LoadConfigFileWithOptions reads a .gtsgenerated file and returns parsed
+// LoadConfigFileWithOptions reads a .canopygenerated file and returns parsed
 // entries along with any configured scan depth. Returns nil entries (no error)
 // if the file does not exist.
 func LoadConfigFileWithOptions(path string) ([]ConfigEntry, int, error) {

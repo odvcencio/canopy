@@ -3,7 +3,7 @@ package vcs
 import (
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 func TestParseGitBlame(t *testing.T) {

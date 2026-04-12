@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 func TestFeedIsNoOp(t *testing.T) {

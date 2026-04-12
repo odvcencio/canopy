@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/generated"
-	"github.com/odvcencio/gts-suite/pkg/index"
+	"github.com/odvcencio/canopy/pkg/generated"
+	"github.com/odvcencio/canopy/pkg/index"
 )
 
 func TestIntegration_IndexBuildDetectsGenerated(t *testing.T) {

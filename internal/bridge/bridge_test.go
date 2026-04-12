@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func TestBuildBridgeReport(t *testing.T) {
@@ -72,7 +72,7 @@ func TestBuildNilIndex(t *testing.T) {
 func TestComponentForPackage(t *testing.T) {
 	cases := map[string]string{
 		".":               "root",
-		"cmd/gts":         "cmd/gts",
+		"cmd/canopy":         "cmd/canopy",
 		"internal/query":  "internal/query",
 		"pkg/contracts":   "pkg/contracts",
 		"service/payment": "service",

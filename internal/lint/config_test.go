@@ -267,7 +267,7 @@ func TestShouldIgnore_SuffixMatch(t *testing.T) {
 func TestLoadConfig_FindsInParent(t *testing.T) {
 	tmpDir := t.TempDir()
 	configContent := `ignore lines in api_test.go`
-	if err := os.WriteFile(filepath.Join(tmpDir, ".gtslint"), []byte(configContent), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, ".canopylint"), []byte(configContent), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -294,7 +294,7 @@ func TestLoadConfig_FindsInParent(t *testing.T) {
 func TestLoadConfig_DirectoryContainsConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configContent := `cyclomatic > 25 → warn "complex function"`
-	if err := os.WriteFile(filepath.Join(tmpDir, ".gtslint"), []byte(configContent), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, ".canopylint"), []byte(configContent), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestLoadConfig_NoConfigFile(t *testing.T) {
 		t.Fatalf("LoadConfig returned error: %v", err)
 	}
 	if cfg != nil {
-		t.Fatal("expected nil config when no .gtslint file exists")
+		t.Fatal("expected nil config when no .canopylint file exists")
 	}
 }
 

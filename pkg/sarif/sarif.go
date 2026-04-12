@@ -1,4 +1,4 @@
-// Package sarif provides a minimal SARIF 2.1.0 encoder for gts-suite
+// Package sarif provides a minimal SARIF 2.1.0 encoder for canopy
 // analysis output. It produces valid SARIF JSON with no external dependencies.
 package sarif
 
@@ -79,7 +79,7 @@ const (
 	sarifVer  = "2.1.0"
 )
 
-// NewLog creates a SARIF log with a single run for gts-suite.
+// NewLog creates a SARIF log with a single run for canopy.
 func NewLog() *Log {
 	return &Log{
 		Version: sarifVer,
@@ -88,8 +88,8 @@ func NewLog() *Log {
 			{
 				Tool: Tool{
 					Driver: Driver{
-						Name:           "gts-suite",
-						InformationURI: "https://github.com/odvcencio/gts-suite",
+						Name:           "canopy",
+						InformationURI: "https://github.com/odvcencio/canopy",
 					},
 				},
 			},
@@ -138,7 +138,7 @@ func (l *Log) Encode(w io.Writer) error {
 	return enc.Encode(l)
 }
 
-// MapSeverity converts gts severity strings to SARIF level values.
+// MapSeverity converts canopy severity strings to SARIF level values.
 // Unknown severities default to "warning".
 func MapSeverity(severity string) string {
 	switch severity {

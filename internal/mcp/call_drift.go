@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/odvcencio/gts-suite/internal/deps"
-	"github.com/odvcencio/gts-suite/pkg/index"
+	"github.com/odvcencio/canopy/internal/deps"
+	"github.com/odvcencio/canopy/pkg/index"
 )
 
 type driftEdge struct {
@@ -38,7 +38,7 @@ func (s *Service) callDrift(args map[string]any) (any, error) {
 	}
 
 	// Create git worktree for base ref.
-	worktreeDir, err := os.MkdirTemp("", "gts-drift-*")
+	worktreeDir, err := os.MkdirTemp("", "canopy-drift-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir for worktree: %w", err)
 	}

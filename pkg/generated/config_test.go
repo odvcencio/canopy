@@ -36,7 +36,7 @@ func TestParseConfigLines(t *testing.T) {
 func TestLoadConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	content := "protobuf: api/**/*.pb.go\nlegacy/**\n"
-	path := filepath.Join(dir, ".gtsgenerated")
+	path := filepath.Join(dir, ".canopygenerated")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestLoadConfigFile(t *testing.T) {
 }
 
 func TestLoadConfigFile_NotExist(t *testing.T) {
-	entries, err := LoadConfigFile("/nonexistent/.gtsgenerated")
+	entries, err := LoadConfigFile("/nonexistent/.canopygenerated")
 	if err != nil {
 		t.Fatal(err)
 	}

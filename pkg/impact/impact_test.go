@@ -3,7 +3,7 @@ package impact
 import (
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func TestAnalyzeEmpty(t *testing.T) {

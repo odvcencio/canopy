@@ -1,4 +1,4 @@
-module github.com/odvcencio/gts-suite
+module github.com/odvcencio/canopy
 
 go 1.25
 

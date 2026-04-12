@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 // FastExtractThreshold is the file size above which generated files use

@@ -1,5 +1,5 @@
 // Package socket provides a Unix socket server for CLI client queries
-// against the running gtsls LSP server's enriched scope graph.
+// against the running canopyls LSP server's enriched scope graph.
 package socket
 
 import (
@@ -42,7 +42,7 @@ type Server struct {
 // SocketPath computes the socket path for a workspace root.
 func SocketPath(workspaceRoot string) string {
 	h := sha256.Sum256([]byte(workspaceRoot))
-	return fmt.Sprintf("/tmp/gtsls-%x.sock", h[:8])
+	return fmt.Sprintf("/tmp/canopyls-%x.sock", h[:8])
 }
 
 // NewServer creates a socket server for the given workspace.

@@ -1,5 +1,5 @@
 // Package boundaries provides architecture boundary enforcement through a
-// simple DSL. It parses .gtsboundaries config files, evaluates import edges
+// simple DSL. It parses .canopyboundaries config files, evaluates import edges
 // against allow/deny rules, and reports violations.
 package boundaries
 
@@ -17,7 +17,7 @@ type Rule struct {
 	Targets []string // path-globs for the import targets; empty means none
 }
 
-// Config holds all parsed boundary rules from a .gtsboundaries file.
+// Config holds all parsed boundary rules from a .canopyboundaries file.
 type Config struct {
 	Rules []Rule
 }
@@ -37,7 +37,7 @@ type Violation struct {
 	Message string // human-readable explanation
 }
 
-// ParseConfig parses the text content of a .gtsboundaries configuration file
+// ParseConfig parses the text content of a .canopyboundaries configuration file
 // and returns the structured Config. Lines starting with # are comments.
 // Blank lines are ignored.
 func ParseConfig(content string) (*Config, error) {
@@ -182,7 +182,7 @@ func matchGlob(pattern, value string) bool {
 	return pattern == value
 }
 
-// LoadConfig searches for a .gtsboundaries file starting in dir and walking
+// LoadConfig searches for a .canopyboundaries file starting in dir and walking
 // up parent directories until it finds one or reaches the filesystem root.
 // Returns a nil Config with no error if no config file is found.
 func LoadConfig(dir string) (*Config, error) {
@@ -192,7 +192,7 @@ func LoadConfig(dir string) (*Config, error) {
 	}
 
 	for {
-		candidate := filepath.Join(abs, ".gtsboundaries")
+		candidate := filepath.Join(abs, ".canopyboundaries")
 		data, err := os.ReadFile(candidate)
 		if err == nil {
 			cfg, parseErr := ParseConfig(string(data))

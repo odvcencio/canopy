@@ -1,6 +1,6 @@
 package capa
 
-import "github.com/odvcencio/gts-suite/pkg/model"
+import "github.com/odvcencio/canopy/pkg/model"
 
 // Rule defines a capability detection pattern.
 type Rule struct {

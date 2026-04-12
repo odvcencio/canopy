@@ -15,10 +15,10 @@ import (
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
-	"github.com/odvcencio/gts-suite/internal/deps"
-	"github.com/odvcencio/gts-suite/pkg/complexity"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/internal/deps"
+	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 var maxLinesRulePattern = regexp.MustCompile(`(?i)^\s*no\s+([a-z_]+)s?\s+longer\s+than\s+(\d+)\s+lines?\s*$`)

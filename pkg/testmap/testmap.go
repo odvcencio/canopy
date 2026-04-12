@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // TestRef identifies a test function that covers an implementation symbol.

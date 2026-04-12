@@ -9,7 +9,7 @@ import (
 type Suppression struct {
 	Metric string // metric name or "*" for all
 	Line   int    // 1-based line number of the comment
-	File   bool   // true for file-level suppression (//gts:lint-ignore-file)
+	File   bool   // true for file-level suppression (//canopy:lint-ignore-file)
 }
 
 // ParseSuppressions scans source code for inline suppression comments and
@@ -17,8 +17,8 @@ type Suppression struct {
 //
 // Supported formats:
 //
-//	//gts:lint-ignore cyclomatic — intentionally complex
-//	//gts:lint-ignore-file — generated code
+//	//canopy:lint-ignore cyclomatic — intentionally complex
+//	//canopy:lint-ignore-file — generated code
 //
 // The comment marker must appear at the start of the trimmed line (possibly
 // preceded by whitespace). Everything after the metric name is treated as an
@@ -35,8 +35,8 @@ func ParseSuppressions(source []byte) []Suppression {
 		lineNo++
 		line := strings.TrimSpace(string(rawLine))
 
-		// File-level suppression: //gts:lint-ignore-file
-		if strings.HasPrefix(line, "//gts:lint-ignore-file") {
+		// File-level suppression: //canopy:lint-ignore-file
+		if strings.HasPrefix(line, "//canopy:lint-ignore-file") {
 			result = append(result, Suppression{
 				Metric: "*",
 				Line:   lineNo,
@@ -45,9 +45,9 @@ func ParseSuppressions(source []byte) []Suppression {
 			continue
 		}
 
-		// Line/function-level suppression: //gts:lint-ignore <metric>
-		if strings.HasPrefix(line, "//gts:lint-ignore") {
-			rest := strings.TrimPrefix(line, "//gts:lint-ignore")
+		// Line/function-level suppression: //canopy:lint-ignore <metric>
+		if strings.HasPrefix(line, "//canopy:lint-ignore") {
+			rest := strings.TrimPrefix(line, "//canopy:lint-ignore")
 			rest = strings.TrimSpace(rest)
 
 			// Strip optional reason after em-dash, double-dash, or #

@@ -23,7 +23,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build gts
+      - name: Build canopy
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -31,17 +31,17 @@ jobs:
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
-            -o "gts-${GOOS}-${GOARCH}${EXT}" ./cmd/gts
+            -o "canopy-${GOOS}-${GOARCH}${EXT}" ./cmd/canopy
           go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
-            -o "gtsls-${GOOS}-${GOARCH}${EXT}" ./cmd/gtsls
+            -o "canopyls-${GOOS}-${GOARCH}${EXT}" ./cmd/canopyls
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            gts-*
-            gtsls-*
+            canopy-*
+            canopyls-*
 
   publish:
     needs: build
@@ -55,13 +55,13 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum gts-* gtsls-* > checksums.txt
+          sha256sum canopy-* canopyls-* > checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/gts-*
-            artifacts/gtsls-*
+            artifacts/canopy-*
+            artifacts/canopyls-*
             artifacts/checksums.txt
           generate_release_notes: true

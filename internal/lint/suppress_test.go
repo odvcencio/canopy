@@ -7,7 +7,7 @@ import (
 func TestParseSuppressions_FunctionLevel(t *testing.T) {
 	source := []byte(`package main
 
-//gts:lint-ignore cyclomatic — intentionally complex
+//canopy:lint-ignore cyclomatic — intentionally complex
 func complexFunc() {}
 
 func normalFunc() {}
@@ -29,7 +29,7 @@ func normalFunc() {}
 }
 
 func TestParseSuppressions_FileLevel(t *testing.T) {
-	source := []byte(`//gts:lint-ignore-file — generated code
+	source := []byte(`//canopy:lint-ignore-file — generated code
 package sqlcgen
 
 func Insert() {}
@@ -51,13 +51,13 @@ func Insert() {}
 }
 
 func TestParseSuppressions_Multiple(t *testing.T) {
-	source := []byte(`//gts:lint-ignore-file — generated code
+	source := []byte(`//canopy:lint-ignore-file — generated code
 package gen
 
-//gts:lint-ignore cyclomatic
+//canopy:lint-ignore cyclomatic
 func first() {}
 
-//gts:lint-ignore lines -- too long
+//canopy:lint-ignore lines -- too long
 func second() {}
 `)
 	suppressions := ParseSuppressions(source)
@@ -112,7 +112,7 @@ func TestParseSuppressions_EmptySource(t *testing.T) {
 }
 
 func TestParseSuppressions_NoMetricMeansWildcard(t *testing.T) {
-	source := []byte(`//gts:lint-ignore
+	source := []byte(`//canopy:lint-ignore
 func foo() {}
 `)
 	suppressions := ParseSuppressions(source)
@@ -125,7 +125,7 @@ func foo() {}
 }
 
 func TestParseSuppressions_WithHashReason(t *testing.T) {
-	source := []byte(`//gts:lint-ignore cyclomatic # legacy code
+	source := []byte(`//canopy:lint-ignore cyclomatic # legacy code
 func legacy() {}
 `)
 	suppressions := ParseSuppressions(source)
@@ -140,7 +140,7 @@ func legacy() {}
 func TestParseSuppressions_WithIndentation(t *testing.T) {
 	source := []byte(`package main
 
-	//gts:lint-ignore lines
+	//canopy:lint-ignore lines
 	func indented() {}
 `)
 	suppressions := ParseSuppressions(source)

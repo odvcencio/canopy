@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/feeds"
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/feeds"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 func TestParserFeedName(t *testing.T) {

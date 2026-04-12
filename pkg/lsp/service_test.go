@@ -43,8 +43,8 @@ func TestServiceInitialize(t *testing.T) {
 	if !strings.Contains(resp, `"documentSymbolProvider":true`) {
 		t.Errorf("expected documentSymbolProvider capability, got: %s", resp)
 	}
-	if !strings.Contains(resp, `"gtsls"`) {
-		t.Errorf("expected server name gtsls, got: %s", resp)
+	if !strings.Contains(resp, `"canopyls"`) {
+		t.Errorf("expected server name canopyls, got: %s", resp)
 	}
 }
 

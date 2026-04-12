@@ -3,7 +3,7 @@ package mcp
 import (
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/testmap"
+	"github.com/odvcencio/canopy/pkg/testmap"
 )
 
 func (s *Service) callTestmap(args map[string]any) (any, error) {

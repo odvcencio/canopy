@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/index"
+	"github.com/odvcencio/canopy/pkg/index"
 )
 
 // gopackagesdriver LoadMode flags

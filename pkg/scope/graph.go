@@ -1,4 +1,4 @@
-// Package scope provides the scope graph data model for the gtsls LSP server.
+// Package scope provides the scope graph data model for the canopyls LSP server.
 // A scope graph represents lexical scoping structure: definitions introduced
 // in each scope, references that need resolution, and parent/child nesting.
 package scope

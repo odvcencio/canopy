@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/index"
+	"github.com/odvcencio/canopy/pkg/index"
 )
 
 func TestBuildFromIndexPopulatesPackages(t *testing.T) {

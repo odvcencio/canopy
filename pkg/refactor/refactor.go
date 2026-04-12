@@ -14,8 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/query"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/query"
 )
 
 type Options struct {

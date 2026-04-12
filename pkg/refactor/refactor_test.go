@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/index"
-	"github.com/odvcencio/gts-suite/pkg/query"
+	"github.com/odvcencio/canopy/pkg/index"
+	"github.com/odvcencio/canopy/pkg/query"
 )
 
 func TestRenameDeclarations_DryRun(t *testing.T) {

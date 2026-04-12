@@ -9,7 +9,7 @@ import (
 func TestLoadWorkspaceGeneratedConfig(t *testing.T) {
 	root := t.TempDir()
 	content := "protobuf: api/**/*.pb.go\ncustom: internal/gen/**\n"
-	if err := os.WriteFile(filepath.Join(root, ".gtsgenerated"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".canopygenerated"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	entries, _, err := LoadWorkspaceGeneratedConfig(root)
@@ -39,7 +39,7 @@ func TestLoadWorkspaceIgnoreLines_ReadsGraftAndGtsFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".graftignore"), []byte("dist/\nbuild/**\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".gtsignore"), []byte("*.min.js\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".canopyignore"), []byte("*.min.js\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -60,7 +60,7 @@ func TestLoadWorkspaceIgnoreLines_ReadsGraftAndGtsFiles(t *testing.T) {
 
 func TestNewBuilderWithWorkspaceIgnoresAndExtras_MergesWorkspaceAndCLIExtras(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".gtsignore"), []byte("vendor/\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".canopyignore"), []byte("vendor/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,10 +95,10 @@ func TestNewBuilderWithWorkspaceIgnoresAndExtras_MergesWorkspaceAndCLIExtras(t *
 }
 
 func TestNewBuilderWithWorkspaceIgnoresAndExtras_NoWorkspaceFileExtrasOnly(t *testing.T) {
-	// No .graftignore or .gtsignore in the temp dir — extras should still apply.
+	// No .graftignore or .canopyignore in the temp dir — extras should still apply.
 	root := t.TempDir()
 	// Anchor the workspace here so workspaceIgnoreRoot doesn't walk up.
-	if err := os.WriteFile(filepath.Join(root, ".gtsgenerated"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".canopygenerated"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,7 +117,7 @@ func TestNewBuilderWithWorkspaceIgnoresAndExtras_NoWorkspaceFileExtrasOnly(t *te
 
 func TestNewBuilderWithWorkspaceIgnoresAndExtras_NoExtrasMatchesLegacyBehavior(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".gtsignore"), []byte("node_modules/\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".canopyignore"), []byte("node_modules/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

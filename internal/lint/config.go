@@ -45,7 +45,7 @@ type LicenseRule struct {
 	Message  string   `json:"message"`
 }
 
-// Config holds all parsed directives from a .gtslint configuration file.
+// Config holds all parsed directives from a .canopylint configuration file.
 type Config struct {
 	Overrides    []ConfigOverride `json:"overrides,omitempty"`
 	Ignores      []ConfigIgnore   `json:"ignores,omitempty"`
@@ -85,7 +85,7 @@ var ignorePattern = regexp.MustCompile(
 	`^\s*ignore\s+(\S+)\s+in\s+(\S+)\s*$`,
 )
 
-// LoadConfig searches for a .gtslint file starting in dir and walking up
+// LoadConfig searches for a .canopylint file starting in dir and walking up
 // parent directories until it finds one or reaches the filesystem root.
 // Returns a nil Config with no error if no config file is found.
 func LoadConfig(dir string) (*Config, error) {
@@ -95,7 +95,7 @@ func LoadConfig(dir string) (*Config, error) {
 	}
 
 	for {
-		candidate := filepath.Join(abs, ".gtslint")
+		candidate := filepath.Join(abs, ".canopylint")
 		data, err := os.ReadFile(candidate)
 		if err == nil {
 			cfg, parseErr := ParseConfig(string(data))
@@ -117,7 +117,7 @@ func LoadConfig(dir string) (*Config, error) {
 	}
 }
 
-// ParseConfig parses the text content of a .gtslint configuration file and
+// ParseConfig parses the text content of a .canopylint configuration file and
 // returns the structured Config. Lines starting with # are comments. Blank
 // lines are ignored.
 func ParseConfig(content string) (*Config, error) {

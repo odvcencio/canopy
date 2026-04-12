@@ -3,7 +3,7 @@ package mcp
 import (
 	"fmt"
 
-	"github.com/odvcencio/gts-suite/pkg/similarity"
+	"github.com/odvcencio/canopy/pkg/similarity"
 )
 
 func (s *Service) callSimilarity(args map[string]any) (any, error) {

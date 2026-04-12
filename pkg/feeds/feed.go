@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 // FeedProvider enriches a scope graph with additional intelligence.

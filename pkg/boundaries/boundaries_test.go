@@ -414,7 +414,7 @@ func TestEvaluate_NilConfig(t *testing.T) {
 func TestLoadConfig_FileInCurrentDir(t *testing.T) {
 	dir := t.TempDir()
 	content := "module pkg/model allow -\n"
-	if err := os.WriteFile(filepath.Join(dir, ".gtsboundaries"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".canopyboundaries"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -437,7 +437,7 @@ func TestLoadConfig_FileInParentDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := "module pkg/index allow pkg/model\n"
-	if err := os.WriteFile(filepath.Join(parent, ".gtsboundaries"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(parent, ".canopyboundaries"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -467,7 +467,7 @@ func TestLoadConfig_NotFound(t *testing.T) {
 func TestLoadConfig_ParseError(t *testing.T) {
 	dir := t.TempDir()
 	content := "invalid line\n"
-	if err := os.WriteFile(filepath.Join(dir, ".gtsboundaries"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".canopyboundaries"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -486,13 +486,13 @@ func TestLoadConfig_ClosestFileWins(t *testing.T) {
 
 	// Parent has 2 rules
 	parentContent := "module pkg/model allow -\nmodule pkg/index allow pkg/model\n"
-	if err := os.WriteFile(filepath.Join(parent, ".gtsboundaries"), []byte(parentContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(parent, ".canopyboundaries"), []byte(parentContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Child has 1 rule — should win
 	childContent := "module pkg/lang allow pkg/model\n"
-	if err := os.WriteFile(filepath.Join(child, ".gtsboundaries"), []byte(childContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(child, ".canopyboundaries"), []byte(childContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 

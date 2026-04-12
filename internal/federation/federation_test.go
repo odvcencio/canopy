@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func TestSaveAndLoadFile(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.gtsindex")
+	path := filepath.Join(dir, "test.canopyindex")
 
 	exported := &ExportedIndex{
 		RepoURL:    "https://github.com/example/repo",
@@ -71,7 +71,7 @@ func TestLoadDir(t *testing.T) {
 				},
 			},
 		}
-		if err := Save(filepath.Join(dir, name+".gtsindex"), exported); err != nil {
+		if err := Save(filepath.Join(dir, name+".canopyindex"), exported); err != nil {
 			t.Fatalf("Save %s: %v", name, err)
 		}
 	}

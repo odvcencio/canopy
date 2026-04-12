@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/index"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/index"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 func (s *Service) loadOrBuild(cachePath string, target string) (*model.Index, error) {
@@ -20,7 +20,7 @@ func (s *Service) loadOrBuild(cachePath string, target string) (*model.Index, er
 		target = s.defaultRoot
 	}
 	// Auto-discover cached index
-	autoPath := filepath.Join(target, ".gts", "index.json")
+	autoPath := filepath.Join(target, ".canopy", "index.json")
 	if _, err := os.Stat(autoPath); err == nil {
 		if idx, loadErr := index.Load(autoPath); loadErr == nil {
 			if idx.ConfigHashes == nil {
@@ -50,7 +50,7 @@ func (s *Service) loadIndexFromSource(pathArg, cacheArg string) (*model.Index, e
 	if target == "" {
 		target = s.defaultRoot
 	}
-	autoPath := filepath.Join(target, ".gts", "index.json")
+	autoPath := filepath.Join(target, ".canopy", "index.json")
 	if _, err := os.Stat(autoPath); err == nil {
 		if idx, loadErr := index.Load(autoPath); loadErr == nil {
 			if idx.ConfigHashes == nil {

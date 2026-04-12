@@ -10,9 +10,9 @@ import (
 
 	"github.com/odvcencio/gotreesitter"
 
-	"github.com/odvcencio/gts-suite/pkg/lang"
-	"github.com/odvcencio/gts-suite/pkg/lang/treesitter"
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/lang"
+	"github.com/odvcencio/canopy/pkg/lang/treesitter"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 type WatchUpdateOptions struct {

@@ -17,8 +17,8 @@ func TestNewLog(t *testing.T) {
 	if len(log.Runs) != 1 {
 		t.Fatalf("runs = %d, want 1", len(log.Runs))
 	}
-	if log.Runs[0].Tool.Driver.Name != "gts-suite" {
-		t.Errorf("driver name = %q, want %q", log.Runs[0].Tool.Driver.Name, "gts-suite")
+	if log.Runs[0].Tool.Driver.Name != "canopy" {
+		t.Errorf("driver name = %q, want %q", log.Runs[0].Tool.Driver.Name, "canopy")
 	}
 	if log.Runs[0].Results != nil {
 		t.Errorf("results should be nil initially, got %v", log.Runs[0].Results)
@@ -143,7 +143,7 @@ func TestEncode(t *testing.T) {
 	if len(decoded.Runs) != 1 {
 		t.Fatalf("decoded runs = %d", len(decoded.Runs))
 	}
-	if decoded.Runs[0].Tool.Driver.Name != "gts-suite" {
+	if decoded.Runs[0].Tool.Driver.Name != "canopy" {
 		t.Errorf("decoded driver = %q", decoded.Runs[0].Tool.Driver.Name)
 	}
 	if len(decoded.Runs[0].Tool.Driver.Rules) != 1 {

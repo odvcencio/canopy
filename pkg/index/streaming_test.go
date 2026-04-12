@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 type stubStreamingParser struct{}

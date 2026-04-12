@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 func TestAnalyzeEmpty(t *testing.T) {

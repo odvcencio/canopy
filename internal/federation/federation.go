@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
-// ExportedIndex is the portable envelope written by "gts index export".
+// ExportedIndex is the portable envelope written by "canopy index export".
 type ExportedIndex struct {
 	RepoURL    string      `json:"repo_url,omitempty"`
 	RepoName   string      `json:"repo_name"`
@@ -71,7 +71,7 @@ func Save(path string, exported *ExportedIndex) error {
 	return gw.Close()
 }
 
-// LoadFile reads a single .gtsindex (gzipped JSON) file.
+// LoadFile reads a single .canopyindex (gzipped JSON) file.
 func LoadFile(path string) (*ExportedIndex, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -92,14 +92,14 @@ func LoadFile(path string) (*ExportedIndex, error) {
 	return &exported, nil
 }
 
-// Load reads all .gtsindex files from a directory.
+// Load reads all .canopyindex files from a directory.
 func Load(dir string) (*FederatedIndex, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.gtsindex"))
+	matches, err := filepath.Glob(filepath.Join(dir, "*.canopyindex"))
 	if err != nil {
 		return nil, err
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("no .gtsindex files found in %s", dir)
+		return nil, fmt.Errorf("no .canopyindex files found in %s", dir)
 	}
 	sort.Strings(matches)
 

@@ -1,4 +1,4 @@
-// Package mcp exposes gts-suite tools as an MCP stdio server for AI agent integration via JSON-RPC.
+// Package mcp exposes canopy tools as an MCP stdio server for AI agent integration via JSON-RPC.
 package mcp
 
 import (
@@ -185,10 +185,10 @@ func graphTools() []Tool {
 	return []Tool{
 		{
 			Name:        "gts_services",
-			Description: "Build repo-to-repo dependency graph from federated .gtsindex files",
+			Description: "Build repo-to-repo dependency graph from federated .canopyindex files",
 			InputSchema: Schema{
 				Properties: map[string]Property{
-					"federation": {Type: "string", Description: "directory containing .gtsindex files (required)"},
+					"federation": {Type: "string", Description: "directory containing .canopyindex files (required)"},
 				},
 				Required: []string{"federation"},
 			}.ToMap(),
@@ -337,21 +337,6 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
-			Name:        "gts_yara",
-			Description: "Generate YARA rules from structural analysis of string literals and API call patterns",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"path":              {Type: "string", Description: "index root path"},
-					"cache":             {Type: "string", Description: "index cache path"},
-					"rule_name":         {Type: "string", Description: "name for the generated rule (default: generated_rule)"},
-					"min_strings":       {Type: "integer", Description: "minimum strings for rule generation (default: 3)"},
-					"max_strings":       {Type: "integer", Description: "maximum strings in rule (default: 20)"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-			}.ToMap(),
-		},
-		{
 			Name:        "gts_complexity",
 			Description: "AST-based complexity metrics per function: cyclomatic, cognitive, nesting depth, fan-in/out",
 			InputSchema: Schema{
@@ -428,23 +413,13 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_boundaries",
-			Description: "Check module boundary rules from .gtsboundaries config",
+			Description: "Check module boundary rules from .canopyboundaries config",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"path":              {Type: "string"},
 					"cache":             {Type: "string"},
 					"include_generated": {Type: "boolean"},
 					"generator":         {Type: "string"},
-				},
-			}.ToMap(),
-		},
-		{
-			Name:        "gts_licenses",
-			Description: "Detect dependency licenses from manifests and vendored LICENSE files, with deny-list enforcement",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"path": {Type: "string", Description: "index root path"},
-					"deny": {Type: "array", Items: &Property{Type: "string"}, Description: "additional denied SPDX license IDs"},
 				},
 			}.ToMap(),
 		},
@@ -538,19 +513,6 @@ func transformTools() []Tool {
 					"after_cache":       {Type: "string"},
 					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
 					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
-				},
-			}.ToMap(),
-		},
-		{
-			Name:        "gts_sbom",
-			Description: "Generate CycloneDX 1.5 SBOM from structural index with optional capability enrichment",
-			InputSchema: Schema{
-				Properties: map[string]Property{
-					"path":                   {Type: "string", Description: "index root path"},
-					"cache":                  {Type: "string", Description: "index cache path"},
-					"include_capabilities":   {Type: "boolean", Description: "enrich components with capability tags (default: false)"},
-					"include_generated":      {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":              {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
 				},
 			}.ToMap(),
 		},
@@ -672,8 +634,6 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCapa(args)
 	case "gts_similarity":
 		return s.callSimilarity(args)
-	case "gts_yara":
-		return s.callYara(args)
 	case "gts_complexity":
 		return s.callComplexity(args)
 	case "gts_testmap":
@@ -686,14 +646,10 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCheck(args)
 	case "gts_boundaries":
 		return s.callBoundaries(args)
-	case "gts_licenses":
-		return s.callLicenses(args)
 	case "gts_reachability":
 		return s.callReachability(args)
 	case "gts_drift":
 		return s.callDrift(args)
-	case "gts_sbom":
-		return s.callSBOM(args)
 	case "gts_guardrails":
 		return s.callGuardrails(args)
 	case "gts_report":

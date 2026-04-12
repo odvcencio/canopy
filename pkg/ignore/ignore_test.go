@@ -101,7 +101,7 @@ func TestMatch_EmptyPatterns(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".gtsignore")
+	path := filepath.Join(dir, ".canopyignore")
 	content := "*.log\n# comment\nbuild/\n!important.log\n"
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestLoad_NotFound(t *testing.T) {
-	_, err := Load("/nonexistent/.gtsignore")
+	_, err := Load("/nonexistent/.canopyignore")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}

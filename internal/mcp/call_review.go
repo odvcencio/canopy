@@ -6,12 +6,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/internal/deps"
-	"github.com/odvcencio/gts-suite/pkg/boundaries"
-	"github.com/odvcencio/gts-suite/pkg/capa"
-	"github.com/odvcencio/gts-suite/pkg/complexity"
-	"github.com/odvcencio/gts-suite/pkg/impact"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/internal/deps"
+	"github.com/odvcencio/canopy/pkg/boundaries"
+	"github.com/odvcencio/canopy/pkg/capa"
+	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/impact"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 type reviewComplexityDelta struct {

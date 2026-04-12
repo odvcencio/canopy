@@ -3,9 +3,9 @@ package reachability
 import (
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/capa"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/capa"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // buildTestIndex creates a minimal model.Index with the given files.

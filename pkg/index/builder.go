@@ -14,11 +14,11 @@ import (
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
-	"github.com/odvcencio/gts-suite/pkg/generated"
-	"github.com/odvcencio/gts-suite/pkg/ignore"
-	"github.com/odvcencio/gts-suite/pkg/lang"
-	"github.com/odvcencio/gts-suite/pkg/lang/treesitter"
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/generated"
+	"github.com/odvcencio/canopy/pkg/ignore"
+	"github.com/odvcencio/canopy/pkg/lang"
+	"github.com/odvcencio/canopy/pkg/lang/treesitter"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 const schemaVersion = "0.2.0"
@@ -136,7 +136,7 @@ func (lp *lazyParser) Parse(path string, src []byte) (model.FileSummary, error) 
 	return lp.parser.Parse(path, src)
 }
 
-// SetIgnore configures a .gtsignore-style matcher to skip paths during indexing.
+// SetIgnore configures a .canopyignore-style matcher to skip paths during indexing.
 func (b *Builder) SetIgnore(m *ignore.Matcher) {
 	b.ignore = m
 }

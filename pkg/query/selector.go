@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 var validKind = regexp.MustCompile(`^(?:\*|[a-z_][a-z0-9_]*)$`)
@@ -52,7 +52,7 @@ func ParseSelector(raw string) (Selector, error) {
 		selector.Kind = kind
 	}
 	if !validKind.MatchString(selector.Kind) {
-		return Selector{}, fmt.Errorf("invalid selector kind %q: must be a tree-sitter node type (e.g. function_definition, method_definition, type_definition, *); see 'gts grep --help'", selector.Kind)
+		return Selector{}, fmt.Errorf("invalid selector kind %q: must be a tree-sitter node type (e.g. function_definition, method_definition, type_definition, *); see 'canopy grep --help'", selector.Kind)
 	}
 
 	if filter == "" {

@@ -1,7 +1,7 @@
 package mcp
 
 import (
-	gtsscope "github.com/odvcencio/gts-suite/internal/scope"
+	gtsscope "github.com/odvcencio/canopy/internal/scope"
 )
 
 func (s *Service) callScope(args map[string]any) (any, error) {

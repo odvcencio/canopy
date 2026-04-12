@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 type BuildEventKind string

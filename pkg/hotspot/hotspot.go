@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/complexity"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // FunctionHotspot holds the three-dimensional hotspot score for a function.

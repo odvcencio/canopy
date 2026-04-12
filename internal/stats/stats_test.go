@@ -3,7 +3,7 @@ package stats
 import (
 	"testing"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func TestBuildAggregatesCounts(t *testing.T) {

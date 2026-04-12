@@ -1,8 +1,8 @@
 package mcp
 
 import (
-	"github.com/odvcencio/gts-suite/pkg/complexity"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 func (s *Service) callComplexity(args map[string]any) (any, error) {

@@ -3,7 +3,7 @@ package mcp
 import (
 	"sort"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func (s *Service) callMap(args map[string]any) (any, error) {

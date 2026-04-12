@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/feeds"
-	"github.com/odvcencio/gts-suite/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/feeds"
+	"github.com/odvcencio/canopy/pkg/scope"
 )
 
 // Diagnostic represents a compiler diagnostic mapped to source.

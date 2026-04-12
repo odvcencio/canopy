@@ -3,8 +3,8 @@ package mcp
 import (
 	"fmt"
 
-	"github.com/odvcencio/gts-suite/internal/deps"
-	"github.com/odvcencio/gts-suite/pkg/boundaries"
+	"github.com/odvcencio/canopy/internal/deps"
+	"github.com/odvcencio/canopy/pkg/boundaries"
 )
 
 func (s *Service) callBoundaries(args map[string]any) (any, error) {
@@ -13,10 +13,10 @@ func (s *Service) callBoundaries(args map[string]any) (any, error) {
 
 	cfg, err := boundaries.LoadConfig(target)
 	if err != nil {
-		return nil, fmt.Errorf("loading .gtsboundaries: %w", err)
+		return nil, fmt.Errorf("loading .canopyboundaries: %w", err)
 	}
 	if cfg == nil || len(cfg.Rules) == 0 {
-		return map[string]any{"status": "SKIP", "violations": 0, "message": "no .gtsboundaries found"}, nil
+		return map[string]any{"status": "SKIP", "violations": 0, "message": "no .canopyboundaries found"}, nil
 	}
 
 	idx, err := s.loadOrBuild(cachePath, target)

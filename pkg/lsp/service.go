@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/odvcencio/gts-suite/pkg/feeds"
-	feedcompiler "github.com/odvcencio/gts-suite/pkg/feeds/compiler"
-	feedparser "github.com/odvcencio/gts-suite/pkg/feeds/parser"
-	feedvcs "github.com/odvcencio/gts-suite/pkg/feeds/vcs"
-	"github.com/odvcencio/gts-suite/pkg/index"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/proxy"
-	"github.com/odvcencio/gts-suite/pkg/scope"
-	"github.com/odvcencio/gts-suite/pkg/socket"
+	"github.com/odvcencio/canopy/pkg/feeds"
+	feedcompiler "github.com/odvcencio/canopy/pkg/feeds/compiler"
+	feedparser "github.com/odvcencio/canopy/pkg/feeds/parser"
+	feedvcs "github.com/odvcencio/canopy/pkg/feeds/vcs"
+	"github.com/odvcencio/canopy/pkg/index"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/proxy"
+	"github.com/odvcencio/canopy/pkg/scope"
+	"github.com/odvcencio/canopy/pkg/socket"
 )
 
 // Service holds workspace state and handles LSP requests.
@@ -88,7 +88,7 @@ func (s *Service) handleInitialize(params json.RawMessage) (any, error) {
 			HoverProvider:           true,
 			RenameProvider:          true,
 		},
-		ServerInfo: &ServerInfo{Name: "gtsls", Version: "0.1.0"},
+		ServerInfo: &ServerInfo{Name: "canopyls", Version: "0.1.0"},
 	}, nil
 }
 

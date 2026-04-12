@@ -2,7 +2,7 @@ package index
 
 // defaultSkipDirs is the shared set of directory names skipped during indexing.
 // These are well-known dependency/build/cache directories that never contain
-// user-authored source code. Users can override with .gtsignore negation
+// user-authored source code. Users can override with .canopyignore negation
 // patterns (e.g. !vendor/) if needed.
 var defaultSkipDirs = map[string]bool{
 	"node_modules":  true,
