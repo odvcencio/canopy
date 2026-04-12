@@ -206,7 +206,7 @@ func TestEvaluatePackageRules_ExportedSymbols(t *testing.T) {
 		},
 	}
 
-	violations, err := EvaluatePackageRules(idx, rules, nil)
+	violations, err := EvaluatePackageRules(idx, rules, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestEvaluatePackageRules_ExportedSymbols_Scoped(t *testing.T) {
 		},
 	}
 
-	violations, err := EvaluatePackageRules(idx, rules, nil)
+	violations, err := EvaluatePackageRules(idx, rules, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestEvaluatePackageRules_ImportDepth(t *testing.T) {
 		},
 	}
 
-	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges)
+	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestEvaluatePackageRules_NoImportCycles_WithCycle(t *testing.T) {
 		},
 	}
 
-	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges)
+	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestEvaluatePackageRules_NoImportCycles_Clean(t *testing.T) {
 		},
 	}
 
-	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges)
+	violations, err := EvaluatePackageRules(&model.Index{}, rules, edges, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

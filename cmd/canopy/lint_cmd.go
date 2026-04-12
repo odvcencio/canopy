@@ -7,8 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/odvcencio/canopy/internal/deps"
 	"github.com/odvcencio/canopy/internal/lint"
+	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/sarif"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 func newLintCmd() *cobra.Command {
@@ -122,6 +125,39 @@ Built-in rules compose with explicit --rule and --pattern flags: all fire togeth
 					return err
 				}
 				violations = append(violations, thresholdViolations...)
+			}
+
+			// Evaluate package-level rules from config (including coupling metrics).
+			if lintCfg != nil && len(lintCfg.PackageRules) > 0 {
+				// Build deps edges for import_depth / no_import_cycles rules.
+				depReport, depErr := deps.Build(idx, deps.Options{
+					Mode:         "package",
+					IncludeEdges: true,
+				})
+				var depsEdges []deps.Edge
+				if depErr == nil {
+					depsEdges = depReport.Edges
+				}
+
+				// Build coupling report if any coupling metrics are used.
+				var couplingReport *coupling.Report
+				for _, rule := range lintCfg.PackageRules {
+					if rule.Metric == "instability" || rule.Metric == "distance" || rule.Metric == "lcom" {
+						if graph, xrefErr := xref.Build(idx); xrefErr == nil {
+							cr, crErr := coupling.Analyze(idx, graph)
+							if crErr == nil {
+								couplingReport = cr
+							}
+						}
+						break
+					}
+				}
+
+				pkgViolations, pkgErr := lint.EvaluatePackageRules(idx, lintCfg.PackageRules, depsEdges, couplingReport)
+				if pkgErr != nil {
+					return pkgErr
+				}
+				violations = append(violations, pkgViolations...)
 			}
 
 			if lintCfg != nil {

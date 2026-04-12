@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/coupling"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // trendRecord is a single snapshot appended to .canopy/trends.jsonl.
@@ -23,11 +25,14 @@ type trendRecord struct {
 }
 
 type trendMetrics struct {
-	CyclomaticMax int `json:"cyclomatic_max"`
-	CognitiveMax  int `json:"cognitive_max"`
-	Violations    int `json:"violations"`
-	Functions     int `json:"functions"`
-	Files         int `json:"files"`
+	CyclomaticMax  int     `json:"cyclomatic_max"`
+	CognitiveMax   int     `json:"cognitive_max"`
+	Violations     int     `json:"violations"`
+	Functions      int     `json:"functions"`
+	Files          int     `json:"files"`
+	MaxInstability float64 `json:"max_instability,omitempty"`
+	MaxDistance     float64 `json:"max_distance,omitempty"`
+	MaxLCOM        int     `json:"max_lcom,omitempty"`
 }
 
 func newTrendsCmd() *cobra.Command {
@@ -85,6 +90,17 @@ func newTrendsRecordCmd() *cobra.Command {
 				}
 			}
 
+			// Run coupling analysis.
+			var maxInstability, maxDistance float64
+			var maxLCOM int
+			if graph, xrefErr := xref.Build(analysisIdx); xrefErr == nil {
+				if couplingReport, couplingErr := coupling.Analyze(analysisIdx, graph); couplingErr == nil {
+					maxInstability = couplingReport.Summary.MaxInstability
+					maxDistance = couplingReport.Summary.MaxDistance
+					maxLCOM = couplingReport.Summary.MaxLCOM
+				}
+			}
+
 			// Get current git commit hash.
 			commit := gitHeadShort(abs)
 
@@ -92,11 +108,14 @@ func newTrendsRecordCmd() *cobra.Command {
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 				Commit:    commit,
 				Metrics: trendMetrics{
-					CyclomaticMax: report.Summary.MaxCyclomatic,
-					CognitiveMax:  report.Summary.MaxCognitive,
-					Violations:    violations,
-					Functions:     report.Summary.Count,
-					Files:         idx.FileCount(),
+					CyclomaticMax:  report.Summary.MaxCyclomatic,
+					CognitiveMax:   report.Summary.MaxCognitive,
+					Violations:     violations,
+					Functions:      report.Summary.Count,
+					Files:          idx.FileCount(),
+					MaxInstability: maxInstability,
+					MaxDistance:     maxDistance,
+					MaxLCOM:        maxLCOM,
 				},
 			}
 
@@ -122,12 +141,15 @@ func newTrendsRecordCmd() *cobra.Command {
 			}
 
 			fmt.Printf("trends: recorded → %s\n", trendsPath)
-			fmt.Printf("  commit:         %s\n", record.Commit)
-			fmt.Printf("  cyclomatic_max: %d\n", record.Metrics.CyclomaticMax)
-			fmt.Printf("  cognitive_max:  %d\n", record.Metrics.CognitiveMax)
-			fmt.Printf("  violations:     %d\n", record.Metrics.Violations)
-			fmt.Printf("  functions:      %d\n", record.Metrics.Functions)
-			fmt.Printf("  files:          %d\n", record.Metrics.Files)
+			fmt.Printf("  commit:          %s\n", record.Commit)
+			fmt.Printf("  cyclomatic_max:  %d\n", record.Metrics.CyclomaticMax)
+			fmt.Printf("  cognitive_max:   %d\n", record.Metrics.CognitiveMax)
+			fmt.Printf("  violations:      %d\n", record.Metrics.Violations)
+			fmt.Printf("  functions:       %d\n", record.Metrics.Functions)
+			fmt.Printf("  files:           %d\n", record.Metrics.Files)
+			fmt.Printf("  max_instability: %.2f\n", record.Metrics.MaxInstability)
+			fmt.Printf("  max_distance:    %.2f\n", record.Metrics.MaxDistance)
+			fmt.Printf("  max_lcom:        %d\n", record.Metrics.MaxLCOM)
 			return nil
 		},
 	}
@@ -209,6 +231,9 @@ func newTrendsShowCmd() *cobra.Command {
 			printViolationTrendLine(first.Metrics.Violations, last.Metrics.Violations)
 			printTrendLine("functions", first.Metrics.Functions, last.Metrics.Functions)
 			printTrendLine("files", first.Metrics.Files, last.Metrics.Files)
+			printFloatTrendLine("max_instability", first.Metrics.MaxInstability, last.Metrics.MaxInstability)
+			printFloatTrendLine("max_distance", first.Metrics.MaxDistance, last.Metrics.MaxDistance)
+			printTrendLine("max_lcom", first.Metrics.MaxLCOM, last.Metrics.MaxLCOM)
 			return nil
 		},
 	}
@@ -263,6 +288,18 @@ func printTrendLine(label string, first, last int) {
 	}
 	pct := float64(last-first) / float64(first) * 100
 	fmt.Printf("  %-16s  %d → %d  (%+.1f%%)\n", label+":", first, last, pct)
+}
+
+func printFloatTrendLine(label string, first, last float64) {
+	if first == 0 && last == 0 {
+		return // omit when both are zero (no coupling data)
+	}
+	if first == 0 {
+		fmt.Printf("  %-16s  %.2f → %.2f\n", label+":", first, last)
+		return
+	}
+	pct := (last - first) / first * 100
+	fmt.Printf("  %-16s  %.2f → %.2f  (%+.1f%%)\n", label+":", first, last, pct)
 }
 
 func printViolationTrendLine(first, last int) {

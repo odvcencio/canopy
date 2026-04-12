@@ -17,6 +17,7 @@ import (
 
 	"github.com/odvcencio/canopy/internal/deps"
 	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/model"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
@@ -504,8 +505,10 @@ func compactPatternText(text string) string {
 }
 
 // EvaluatePackageRules checks package-level metrics against the given rules.
-// It supports exported_symbols, import_depth, and no_import_cycles metrics.
-func EvaluatePackageRules(idx *model.Index, rules []PackageRule, depsEdges []deps.Edge) ([]Violation, error) {
+// It supports exported_symbols, import_depth, no_import_cycles, instability,
+// distance, and lcom metrics. The optional couplingReport provides coupling
+// analysis results for instability/distance/lcom checks.
+func EvaluatePackageRules(idx *model.Index, rules []PackageRule, depsEdges []deps.Edge, couplingReport *coupling.Report) ([]Violation, error) {
 	if idx == nil || len(rules) == 0 {
 		return nil, nil
 	}
@@ -573,6 +576,69 @@ func EvaluatePackageRules(idx *model.Index, rules []PackageRule, depsEdges []dep
 					Message:  fmt.Sprintf("%s: %s", rule.Message, strings.Join(cycle.Path, " -> ")),
 					Severity: rule.Severity,
 				})
+			}
+
+		case "instability":
+			if couplingReport != nil {
+				for _, pm := range couplingReport.Packages {
+					if rule.Scope != "" && !matchPkgGlob(rule.Scope, pm.Package) {
+						continue
+					}
+					// Compare instability * 100 against threshold to allow integer thresholds.
+					val := int(pm.Instability * 100)
+					if val > rule.Threshold {
+						violations = append(violations, Violation{
+							RuleID:   "package/" + rule.Metric,
+							File:     pm.Package,
+							Kind:     "package",
+							Name:     pm.Package,
+							Message:  fmt.Sprintf("%s (instability=%.2f, threshold=%.2f)", rule.Message, pm.Instability, float64(rule.Threshold)/100),
+							Severity: rule.Severity,
+							Value:    val,
+						})
+					}
+				}
+			}
+
+		case "distance":
+			if couplingReport != nil {
+				for _, pm := range couplingReport.Packages {
+					if rule.Scope != "" && !matchPkgGlob(rule.Scope, pm.Package) {
+						continue
+					}
+					val := int(pm.Distance * 100)
+					if val > rule.Threshold {
+						violations = append(violations, Violation{
+							RuleID:   "package/" + rule.Metric,
+							File:     pm.Package,
+							Kind:     "package",
+							Name:     pm.Package,
+							Message:  fmt.Sprintf("%s (distance=%.2f, threshold=%.2f)", rule.Message, pm.Distance, float64(rule.Threshold)/100),
+							Severity: rule.Severity,
+							Value:    val,
+						})
+					}
+				}
+			}
+
+		case "lcom":
+			if couplingReport != nil {
+				for _, pm := range couplingReport.Packages {
+					if rule.Scope != "" && !matchPkgGlob(rule.Scope, pm.Package) {
+						continue
+					}
+					if pm.LCOM > rule.Threshold {
+						violations = append(violations, Violation{
+							RuleID:   "package/" + rule.Metric,
+							File:     pm.Package,
+							Kind:     "package",
+							Name:     pm.Package,
+							Message:  fmt.Sprintf("%s (lcom=%d, threshold=%d)", rule.Message, pm.LCOM, rule.Threshold),
+							Severity: rule.Severity,
+							Value:    pm.LCOM,
+						})
+					}
+				}
 			}
 		}
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/boundaries"
 	"github.com/odvcencio/canopy/pkg/capa"
 	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/hotspot"
 	"github.com/odvcencio/canopy/pkg/model"
 	"github.com/odvcencio/canopy/pkg/xref"
@@ -35,8 +36,12 @@ type Report struct {
 	CognitiveMax  int `json:"cognitive_max"`
 
 	// Architecture
-	BoundaryViolations int `json:"boundary_violations"`
-	ImportCycles       int `json:"import_cycles"`
+	BoundaryViolations   int      `json:"boundary_violations"`
+	ImportCycles         int      `json:"import_cycles"`
+	AvgInstability       float64  `json:"avg_instability,omitempty"`
+	MaxDistance           float64  `json:"max_distance,omitempty"`
+	MaxLCOM              int      `json:"max_lcom,omitempty"`
+	WorstCouplingPackages []string `json:"worst_coupling_packages,omitempty"`
 
 	// Security
 	Capabilities int `json:"capabilities"`
@@ -199,6 +204,38 @@ Examples:
 				rpt.DeadFunctions = deadCount
 			}
 
+			// --- Coupling metrics ---
+			if xrefGraph != nil {
+				couplingReport, couplingErr := coupling.Analyze(analysisIdx, *xrefGraph)
+				if couplingErr == nil {
+					rpt.AvgInstability = couplingReport.Summary.AvgInstability
+					rpt.MaxDistance = couplingReport.Summary.MaxDistance
+					rpt.MaxLCOM = couplingReport.Summary.MaxLCOM
+
+					// Pick top 3 packages by distance from main sequence.
+					type pkgDist struct {
+						pkg  string
+						dist float64
+					}
+					ranked := make([]pkgDist, 0, len(couplingReport.Packages))
+					for _, pm := range couplingReport.Packages {
+						ranked = append(ranked, pkgDist{pkg: pm.Package, dist: pm.Distance})
+					}
+					sort.Slice(ranked, func(i, j int) bool {
+						return ranked[i].dist > ranked[j].dist
+					})
+					top := 3
+					if len(ranked) < top {
+						top = len(ranked)
+					}
+					for i := 0; i < top; i++ {
+						if ranked[i].dist > 0 {
+							rpt.WorstCouplingPackages = append(rpt.WorstCouplingPackages, ranked[i].pkg)
+						}
+					}
+				}
+			}
+
 			// --- Hotspots (top 5) ---
 			hotspotReport, hotspotErr := hotspot.Analyze(analysisIdx, hotspot.Options{
 				Root:  target,
@@ -309,9 +346,16 @@ func printMarkdownReport(rpt Report, delta *Report, target string) {
 	fmt.Println("## Architecture Health")
 	fmt.Printf("- %d boundary violations\n", rpt.BoundaryViolations)
 	fmt.Printf("- %d import cycles\n", rpt.ImportCycles)
+	fmt.Printf("- Avg instability: %.2f\n", rpt.AvgInstability)
+	fmt.Printf("- Max distance from main sequence: %.2f\n", rpt.MaxDistance)
+	fmt.Printf("- Max LCOM-4: %d\n", rpt.MaxLCOM)
+	if len(rpt.WorstCouplingPackages) > 0 {
+		fmt.Printf("- Worst packages (by distance): %s\n", strings.Join(rpt.WorstCouplingPackages, ", "))
+	}
 	if delta != nil {
 		printDelta("boundary violations", rpt.BoundaryViolations, delta.BoundaryViolations)
 		printDelta("import cycles", rpt.ImportCycles, delta.ImportCycles)
+		printDelta("max LCOM-4", rpt.MaxLCOM, delta.MaxLCOM)
 	}
 	fmt.Println()
 

@@ -10,7 +10,9 @@ import (
 
 	"github.com/odvcencio/canopy/internal/lint"
 	"github.com/odvcencio/canopy/pkg/complexity"
+	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/sarif"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // changedFiles runs git diff --name-only against the given base ref and returns
@@ -32,12 +34,14 @@ func changedFiles(base, repoDir string) (map[string]bool, error) {
 }
 
 type checkViolation struct {
-	Check     string `json:"check"`
-	File      string `json:"file"`
-	Name      string `json:"name"`
-	Line      int    `json:"line"`
-	Value     int    `json:"value"`
-	Threshold int    `json:"threshold"`
+	Check          string  `json:"check"`
+	File           string  `json:"file"`
+	Name           string  `json:"name"`
+	Line           int     `json:"line"`
+	Value          int     `json:"value"`
+	Threshold      int     `json:"threshold"`
+	FloatValue     float64 `json:"float_value,omitempty"`
+	FloatThreshold float64 `json:"float_threshold,omitempty"`
 }
 
 type checkResult struct {
@@ -60,6 +64,9 @@ func newCheckCmd() *cobra.Command {
 		maxCognitive    int
 		maxLines        int
 		maxGeneratedPct int
+		maxInstability  float64
+		maxDistance      float64
+		maxLCOM         int
 	)
 
 	cmd := &cobra.Command{
@@ -189,6 +196,63 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
+			// Checks 5-7: Coupling metrics (instability, distance, LCOM).
+			if maxInstability > 0 || maxDistance > 0 || maxLCOM > 0 {
+				graph, xrefErr := xref.Build(analysisIdx)
+				if xrefErr == nil {
+					couplingReport, couplingErr := coupling.Analyze(analysisIdx, graph)
+					if couplingErr == nil {
+						// Check 5: Instability.
+						if maxInstability > 0 {
+							checksRun++
+							for _, pm := range couplingReport.Packages {
+								if pm.Instability > maxInstability {
+									violations = append(violations, checkViolation{
+										Check:          "instability",
+										File:           pm.Package,
+										Name:           pm.Package,
+										FloatValue:     pm.Instability,
+										FloatThreshold: maxInstability,
+									})
+								}
+							}
+						}
+
+						// Check 6: Distance from main sequence.
+						if maxDistance > 0 {
+							checksRun++
+							for _, pm := range couplingReport.Packages {
+								if pm.Distance > maxDistance {
+									violations = append(violations, checkViolation{
+										Check:          "distance",
+										File:           pm.Package,
+										Name:           pm.Package,
+										FloatValue:     pm.Distance,
+										FloatThreshold: maxDistance,
+									})
+								}
+							}
+						}
+
+						// Check 7: LCOM (lack of cohesion).
+						if maxLCOM > 0 {
+							checksRun++
+							for _, pm := range couplingReport.Packages {
+								if pm.LCOM > maxLCOM {
+									violations = append(violations, checkViolation{
+										Check:     "lcom",
+										File:      pm.Package,
+										Name:      pm.Package,
+										Value:     pm.LCOM,
+										Threshold: maxLCOM,
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+
 			// When --base is set, restrict violations to changed files only.
 			var numChanged int
 			if base != "" {
@@ -234,7 +298,12 @@ func newCheckCmd() *cobra.Command {
 						log.AddRule(v.Check, v.Check+" threshold exceeded")
 						seen[v.Check] = true
 					}
-					msg := fmt.Sprintf("%s %s value=%d (max=%d)", v.File, v.Name, v.Value, v.Threshold)
+					var msg string
+					if v.FloatThreshold > 0 {
+						msg = fmt.Sprintf("%s %s value=%.2f (max=%.2f)", v.File, v.Name, v.FloatValue, v.FloatThreshold)
+					} else {
+						msg = fmt.Sprintf("%s %s value=%d (max=%d)", v.File, v.Name, v.Value, v.Threshold)
+					}
 					log.AddResult(v.Check, "error", msg, v.File, v.Line, 0)
 				}
 				if err := log.Encode(os.Stdout); err != nil {
@@ -253,8 +322,18 @@ func newCheckCmd() *cobra.Command {
 				if len(violations) > 0 {
 					fmt.Println("\nviolations:")
 					for _, v := range violations {
-						if v.File != "" {
+						if v.FloatThreshold > 0 {
+							if v.File != "" && v.Line > 0 {
+								fmt.Printf("  %s: %s:%d %s value=%.2f (max=%.2f)\n", v.Check, v.File, v.Line, v.Name, v.FloatValue, v.FloatThreshold)
+							} else if v.File != "" {
+								fmt.Printf("  %s: %s %s value=%.2f (max=%.2f)\n", v.Check, v.File, v.Name, v.FloatValue, v.FloatThreshold)
+							} else {
+								fmt.Printf("  %s: %s value=%.2f (max=%.2f)\n", v.Check, v.Name, v.FloatValue, v.FloatThreshold)
+							}
+						} else if v.File != "" && v.Line > 0 {
 							fmt.Printf("  %s: %s:%d %s value=%d (max=%d)\n", v.Check, v.File, v.Line, v.Name, v.Value, v.Threshold)
+						} else if v.File != "" {
+							fmt.Printf("  %s: %s %s value=%d (max=%d)\n", v.Check, v.File, v.Name, v.Value, v.Threshold)
 						} else {
 							fmt.Printf("  %s: %s value=%d (max=%d)\n", v.Check, v.Name, v.Value, v.Threshold)
 						}
@@ -278,5 +357,8 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxCognitive, "max-cognitive", 80, "max cognitive complexity per function (0 to disable)")
 	cmd.Flags().IntVar(&maxLines, "max-lines", 300, "max lines per function (0 to disable)")
 	cmd.Flags().IntVar(&maxGeneratedPct, "max-generated-pct", 60, "max % of files that are generated (0 to disable)")
+	cmd.Flags().Float64Var(&maxInstability, "max-instability", 0, "max package instability 0.0-1.0 (0 to disable)")
+	cmd.Flags().Float64Var(&maxDistance, "max-distance", 0, "max distance from main sequence 0.0-1.0 (0 to disable)")
+	cmd.Flags().IntVar(&maxLCOM, "max-lcom", 0, "max LCOM-4 per package (0 to disable)")
 	return cmd
 }
