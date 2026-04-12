@@ -18,6 +18,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/hotspot"
 	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/typemetrics"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
 
@@ -42,6 +43,11 @@ type Report struct {
 	MaxDistance           float64  `json:"max_distance,omitempty"`
 	MaxLCOM              int      `json:"max_lcom,omitempty"`
 	WorstCouplingPackages []string `json:"worst_coupling_packages,omitempty"`
+
+	// Type Health
+	MaxFields         int      `json:"max_fields,omitempty"`
+	MaxInterfaceWidth int      `json:"max_interface_width,omitempty"`
+	WorstTypes        []string `json:"worst_types,omitempty"`
 
 	// Security
 	Capabilities int `json:"capabilities"`
@@ -236,6 +242,38 @@ Examples:
 				}
 			}
 
+			// --- Type Health ---
+			if xrefGraph != nil {
+				typeReport, typeErr := typemetrics.Analyze(analysisIdx, analysisIdx.Root, *xrefGraph)
+				if typeErr == nil {
+					rpt.MaxFields = typeReport.Summary.MaxFields
+					rpt.MaxInterfaceWidth = typeReport.Summary.MaxInterfaceWidth
+
+					// Pick top 3 types by field count.
+					type typeFc struct {
+						name   string
+						file   string
+						fields int
+					}
+					ranked := make([]typeFc, 0, len(typeReport.Types))
+					for _, tm := range typeReport.Types {
+						ranked = append(ranked, typeFc{name: tm.Name, file: tm.File, fields: tm.Fields})
+					}
+					sort.Slice(ranked, func(i, j int) bool {
+						return ranked[i].fields > ranked[j].fields
+					})
+					topN := 3
+					if len(ranked) < topN {
+						topN = len(ranked)
+					}
+					for i := 0; i < topN; i++ {
+						if ranked[i].fields > 0 {
+							rpt.WorstTypes = append(rpt.WorstTypes, fmt.Sprintf("%s (%s, %d fields)", ranked[i].name, ranked[i].file, ranked[i].fields))
+						}
+					}
+				}
+			}
+
 			// --- Hotspots (top 5) ---
 			hotspotReport, hotspotErr := hotspot.Analyze(analysisIdx, hotspot.Options{
 				Root:  target,
@@ -356,6 +394,19 @@ func printMarkdownReport(rpt Report, delta *Report, target string) {
 		printDelta("boundary violations", rpt.BoundaryViolations, delta.BoundaryViolations)
 		printDelta("import cycles", rpt.ImportCycles, delta.ImportCycles)
 		printDelta("max LCOM-4", rpt.MaxLCOM, delta.MaxLCOM)
+	}
+	fmt.Println()
+
+	// Type Health
+	fmt.Println("## Type Health")
+	fmt.Printf("- Max fields: %d\n", rpt.MaxFields)
+	fmt.Printf("- Max interface width: %d\n", rpt.MaxInterfaceWidth)
+	if len(rpt.WorstTypes) > 0 {
+		fmt.Printf("- Worst types (by fields): %s\n", strings.Join(rpt.WorstTypes, ", "))
+	}
+	if delta != nil {
+		printDelta("max fields", rpt.MaxFields, delta.MaxFields)
+		printDelta("max interface width", rpt.MaxInterfaceWidth, delta.MaxInterfaceWidth)
 	}
 	fmt.Println()
 

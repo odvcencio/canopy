@@ -337,6 +337,21 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_types",
+			Description: "Type-level structural metrics: struct fields, interface width, method set size, nesting depth",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"sort":              {Type: "string", Description: "sort field: fields, interface_width, method_set, nesting (default: fields)"},
+					"top":               {Type: "integer", Description: "limit to top N results (default: all)"},
+					"min_fields":        {Type: "integer", Description: "minimum field count to include (default: 0)"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_coupling",
 			Description: "Package-level coupling, instability, abstractness, and cohesion (LCOM-4) metrics",
 			InputSchema: Schema{
@@ -420,9 +435,11 @@ func analyzeTools() []Tool {
 					"max_cyclomatic":    {Type: "integer", Description: "max cyclomatic complexity per function (default: 50, 0 to disable)"},
 					"max_cognitive":     {Type: "integer", Description: "max cognitive complexity per function (default: 80, 0 to disable)"},
 					"max_lines":         {Type: "integer", Description: "max lines per function (default: 300, 0 to disable)"},
-					"max_generated_pct": {Type: "integer", Description: "max % of files that are generated (default: 60, 0 to disable)"},
-					"include_generated": {Type: "boolean", Description: "include generated files in complexity analysis (default: false)"},
-					"generator":          {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+					"max_generated_pct":    {Type: "integer", Description: "max % of files that are generated (default: 60, 0 to disable)"},
+					"max_fields":           {Type: "integer", Description: "max fields per type (default: 0, 0 to disable)"},
+					"max_interface_width":  {Type: "integer", Description: "max interface width (default: 0, 0 to disable)"},
+					"include_generated":    {Type: "boolean", Description: "include generated files in complexity analysis (default: false)"},
+					"generator":            {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
 				},
 			}.ToMap(),
 		},
@@ -649,6 +666,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCapa(args)
 	case "gts_similarity":
 		return s.callSimilarity(args)
+	case "gts_types":
+		return s.callTypeMetrics(args)
 	case "gts_coupling":
 		return s.callCoupling(args)
 	case "gts_complexity":

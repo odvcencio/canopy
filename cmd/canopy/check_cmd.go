@@ -12,6 +12,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/complexity"
 	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/sarif"
+	"github.com/odvcencio/canopy/pkg/typemetrics"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
 
@@ -64,9 +65,11 @@ func newCheckCmd() *cobra.Command {
 		maxCognitive    int
 		maxLines        int
 		maxGeneratedPct int
-		maxInstability  float64
-		maxDistance      float64
-		maxLCOM         int
+		maxInstability     float64
+		maxDistance         float64
+		maxLCOM            int
+		maxFields          int
+		maxInterfaceWidth  int
 	)
 
 	cmd := &cobra.Command{
@@ -196,10 +199,17 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
+			// Build xref graph once if needed by coupling or type metrics checks.
+			var graph xref.Graph
+			var graphErr error
+			needGraph := maxInstability > 0 || maxDistance > 0 || maxLCOM > 0 || maxFields > 0 || maxInterfaceWidth > 0
+			if needGraph {
+				graph, graphErr = xref.Build(analysisIdx)
+			}
+
 			// Checks 5-7: Coupling metrics (instability, distance, LCOM).
 			if maxInstability > 0 || maxDistance > 0 || maxLCOM > 0 {
-				graph, xrefErr := xref.Build(analysisIdx)
-				if xrefErr == nil {
+				if graphErr == nil {
 					couplingReport, couplingErr := coupling.Analyze(analysisIdx, graph)
 					if couplingErr == nil {
 						// Check 5: Instability.
@@ -245,6 +255,48 @@ func newCheckCmd() *cobra.Command {
 										Name:      pm.Package,
 										Value:     pm.LCOM,
 										Threshold: maxLCOM,
+									})
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Checks 8-9: Type metrics (fields, interface width).
+			if maxFields > 0 || maxInterfaceWidth > 0 {
+				if graphErr == nil {
+					typeReport, typeErr := typemetrics.Analyze(analysisIdx, analysisIdx.Root, graph)
+					if typeErr == nil {
+						// Check 8: Max fields per type.
+						if maxFields > 0 {
+							checksRun++
+							for _, tm := range typeReport.Types {
+								if tm.Fields > maxFields {
+									violations = append(violations, checkViolation{
+										Check:     "fields",
+										File:      tm.File,
+										Name:      tm.Name,
+										Line:      tm.StartLine,
+										Value:     tm.Fields,
+										Threshold: maxFields,
+									})
+								}
+							}
+						}
+
+						// Check 9: Max interface width.
+						if maxInterfaceWidth > 0 {
+							checksRun++
+							for _, tm := range typeReport.Types {
+								if tm.InterfaceWidth > maxInterfaceWidth {
+									violations = append(violations, checkViolation{
+										Check:     "interface-width",
+										File:      tm.File,
+										Name:      tm.Name,
+										Line:      tm.StartLine,
+										Value:     tm.InterfaceWidth,
+										Threshold: maxInterfaceWidth,
 									})
 								}
 							}
@@ -360,5 +412,7 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&maxInstability, "max-instability", 0, "max package instability 0.0-1.0 (0 to disable)")
 	cmd.Flags().Float64Var(&maxDistance, "max-distance", 0, "max distance from main sequence 0.0-1.0 (0 to disable)")
 	cmd.Flags().IntVar(&maxLCOM, "max-lcom", 0, "max LCOM-4 per package (0 to disable)")
+	cmd.Flags().IntVar(&maxFields, "max-fields", 0, "max fields per type (0 to disable)")
+	cmd.Flags().IntVar(&maxInterfaceWidth, "max-interface-width", 0, "max interface width (0 to disable)")
 	return cmd
 }
