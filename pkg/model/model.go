@@ -1,7 +1,11 @@
 // Package model defines the core data types for structural code indexing: Symbol, Reference, FileSummary, and Index.
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/odvcencio/canopy/pkg/ignore"
+)
 
 // Symbol represents a top-level declaration (function, method, type) in a source file.
 type Symbol struct {
@@ -117,6 +121,24 @@ func (idx *Index) WithoutGenerated() *Index {
 	filtered.Files = make([]FileSummary, 0, len(idx.Files))
 	for _, f := range idx.Files {
 		if f.Generated == nil {
+			filtered.Files = append(filtered.Files, f)
+		}
+	}
+	return &filtered
+}
+
+// ExcludePaths returns a shallow copy of the index with files matching any of
+// the given gitignore-style patterns removed. This allows post-hoc exclusion
+// on a cached index without rebuilding from scratch.
+func (idx *Index) ExcludePaths(patterns []string) *Index {
+	if idx == nil || len(patterns) == 0 {
+		return idx
+	}
+	matcher := ignore.ParsePatterns(patterns)
+	filtered := *idx
+	filtered.Files = make([]FileSummary, 0, len(idx.Files))
+	for _, f := range idx.Files {
+		if !matcher.Match(f.Path, false) {
 			filtered.Files = append(filtered.Files, f)
 		}
 	}

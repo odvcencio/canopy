@@ -10,8 +10,8 @@ import (
 
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
-	"github.com/odvcencio/gts-suite/pkg/model"
-	"github.com/odvcencio/gts-suite/pkg/xref"
+	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/xref"
 )
 
 // FunctionMetrics holds all computed complexity metrics for a single function or method.
@@ -65,42 +65,56 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 
 	functions := make([]FunctionMetrics, 0, 128)
 
-	// Cache file contents to avoid re-reading the same file for multiple functions.
-	fileCache := map[string][]byte{}
+	// Cache one parser per language — NewParser builds large lookup tables
+	// from the grammar's parse table, so reusing parsers avoids allocating
+	// those tables for every function (the main OOM driver on large repos).
+	parserCache := map[*gotreesitter.Language]*gotreesitter.Parser{}
 
 	for _, file := range idx.Files {
+		// Detect language once per file — same for all symbols within it.
+		entry := grammars.DetectLanguage(file.Path)
+		if entry == nil {
+			continue
+		}
+
+		// Skip files with no callable symbols before touching disk.
+		hasCallable := false
+		for _, sym := range file.Symbols {
+			if isCallableSymbol(sym.Kind) {
+				hasCallable = true
+				break
+			}
+		}
+		if !hasCallable {
+			continue
+		}
+
+		absPath := file.Path
+		if !filepath.IsAbs(absPath) && root != "" {
+			absPath = filepath.Join(root, absPath)
+		}
+		source, err := os.ReadFile(absPath)
+		if err != nil {
+			continue
+		}
+
+		// Resolve language and parser once per file, not per symbol.
+		lang := entry.Language()
+		parser, ok := parserCache[lang]
+		if !ok {
+			parser = gotreesitter.NewParser(lang)
+			parserCache[lang] = parser
+		}
+
 		for _, sym := range file.Symbols {
 			if !isCallableSymbol(sym.Kind) {
 				continue
-			}
-
-			absPath := file.Path
-			if !filepath.IsAbs(absPath) && root != "" {
-				absPath = filepath.Join(root, absPath)
-			}
-
-			source, ok := fileCache[absPath]
-			if !ok {
-				data, err := os.ReadFile(absPath)
-				if err != nil {
-					continue
-				}
-				fileCache[absPath] = data
-				source = data
 			}
 
 			body := extractBody(source, sym.StartLine, sym.EndLine)
 			if len(body) == 0 {
 				continue
 			}
-
-			entry := grammars.DetectLanguage(file.Path)
-			if entry == nil {
-				continue
-			}
-
-			lang := entry.Language()
-			parser := gotreesitter.NewParser(lang)
 
 			var tree *gotreesitter.Tree
 			var parseErr error
@@ -184,29 +198,58 @@ func EnrichWithXref(report *Report, graph xref.Graph) {
 	}
 }
 
-// extractBody returns the source lines between startLine and endLine (1-indexed, inclusive).
+// extractBody returns the source bytes between startLine and endLine
+// (1-indexed, inclusive). The returned slice shares the source backing array,
+// so callers must not retain it beyond the lifetime of source.
 func extractBody(source []byte, startLine, endLine int) []byte {
-	lines := strings.Split(string(source), "\n")
+	if len(source) == 0 || startLine > endLine {
+		return nil
+	}
 	if startLine < 1 {
 		startLine = 1
 	}
-	if endLine > len(lines) {
-		endLine = len(lines)
+
+	line := 1
+	start := -1
+	for i, b := range source {
+		if line == startLine && start == -1 {
+			start = i
+		}
+		if b == '\n' {
+			if line == endLine {
+				return source[start : i+1]
+			}
+			line++
+		}
 	}
-	if startLine > endLine || startLine > len(lines) {
-		return nil
+	// Handle last line without trailing newline.
+	if start >= 0 && line >= startLine && line <= endLine {
+		return source[start:]
 	}
-	selected := lines[startLine-1 : endLine]
-	return []byte(strings.Join(selected, "\n"))
+	return nil
 }
 
 // countNonBlankLines counts lines that contain at least one non-whitespace character.
+// Uses byte scanning to avoid allocating a []string from Split.
 func countNonBlankLines(body []byte) int {
 	count := 0
-	for _, line := range strings.Split(string(body), "\n") {
-		if strings.TrimSpace(line) != "" {
-			count++
+	hasNonSpace := false
+	for _, b := range body {
+		switch b {
+		case '\n':
+			if hasNonSpace {
+				count++
+			}
+			hasNonSpace = false
+		case ' ', '\t', '\r':
+			// whitespace, skip
+		default:
+			hasNonSpace = true
 		}
+	}
+	// Count final line if it has content and no trailing newline.
+	if hasNonSpace {
+		count++
 	}
 	return count
 }

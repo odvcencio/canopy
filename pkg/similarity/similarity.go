@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 // FunctionPrint represents a normalized fingerprint of a function.
@@ -159,6 +159,11 @@ func Compare(a, b *model.Index, aRoot, bRoot string, threshold float64, top int,
 	for _, ap := range aPrints {
 		for _, bp := range bPrints {
 			if ap.File == bp.File && ap.Name == bp.Name {
+				continue
+			}
+			// Skip pairs at the same location — tree-sitter can emit multiple
+			// symbols (function name + return type) for the same function body.
+			if ap.File == bp.File && ap.StartLine == bp.StartLine && ap.EndLine == bp.EndLine {
 				continue
 			}
 

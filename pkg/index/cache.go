@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/odvcencio/gts-suite/pkg/model"
+	"github.com/odvcencio/canopy/pkg/model"
 )
 
 func Save(path string, idx *model.Index) error {
@@ -52,6 +52,17 @@ func Save(path string, idx *model.Index) error {
 }
 
 func Load(path string) (*model.Index, error) {
+	return loadIndex(path, false)
+}
+
+// LoadLenient loads a cached index, accepting older schema versions. Useful
+// for analysis commands that can tolerate missing fields rather than OOM'ing
+// on a full rebuild.
+func LoadLenient(path string) (*model.Index, error) {
+	return loadIndex(path, true)
+}
+
+func loadIndex(path string, lenient bool) (*model.Index, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -63,7 +74,11 @@ func Load(path string) (*model.Index, error) {
 		return nil, err
 	}
 	if idx.Version != "" && idx.Version != schemaVersion {
-		return nil, fmt.Errorf("index schema version mismatch: cache has %q, expected %q", idx.Version, schemaVersion)
+		if !lenient {
+			return nil, fmt.Errorf("index schema version mismatch: cache has %q, expected %q", idx.Version, schemaVersion)
+		}
+		fmt.Fprintf(os.Stderr, "index: cache schema %q != expected %q, using anyway (rebuild with 'canopy index build' for full features)\n",
+			idx.Version, schemaVersion)
 	}
 	return &idx, nil
 }
