@@ -337,6 +337,21 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_coupling",
+			Description: "Package-level coupling, instability, abstractness, and cohesion (LCOM-4) metrics",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"sort":              {Type: "string", Description: "sort field: instability, distance, lcom, ca, ce (default: distance)"},
+					"top":               {Type: "integer", Description: "limit to top N results (default: all)"},
+					"min_distance":      {Type: "number", Description: "minimum distance from main sequence to include (default: 0)"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_complexity",
 			Description: "AST-based complexity metrics per function: cyclomatic, cognitive, nesting depth, fan-in/out",
 			InputSchema: Schema{
@@ -634,6 +649,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callCapa(args)
 	case "gts_similarity":
 		return s.callSimilarity(args)
+	case "gts_coupling":
+		return s.callCoupling(args)
 	case "gts_complexity":
 		return s.callComplexity(args)
 	case "gts_testmap":

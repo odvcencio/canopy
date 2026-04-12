@@ -12,6 +12,7 @@ governance, capability detection, and executive reporting.`,
 	cmd.AddCommand(
 		newCheckCmd(),
 		newComplexityCmd(),
+		newCouplingCmd(),
 		newHotspotCmd(),
 		newLintCmd(),
 		newCapaCmd(),
