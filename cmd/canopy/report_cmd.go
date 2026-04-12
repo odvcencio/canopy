@@ -18,6 +18,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/hotspot"
 	"github.com/odvcencio/canopy/pkg/model"
+	"github.com/odvcencio/canopy/pkg/smells"
 	"github.com/odvcencio/canopy/pkg/typemetrics"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
@@ -57,6 +58,11 @@ type Report struct {
 
 	// Hotspots (top 5)
 	Hotspots []HotspotEntry `json:"hotspots,omitempty"`
+
+	// Structural Smells
+	SmellsTotal  int `json:"smells_total"`
+	SmellErrors  int `json:"smell_errors"`
+	SmellWarnings int `json:"smell_warnings"`
 
 	// Team breakdown (only when --by-team is set)
 	Teams map[string]*TeamMetrics `json:"teams,omitempty"`
@@ -274,6 +280,35 @@ Examples:
 				}
 			}
 
+			// --- Structural Smells ---
+			if xrefGraph != nil {
+				var couplingReportForSmells *coupling.Report
+				if cr, ce := coupling.Analyze(analysisIdx, *xrefGraph); ce == nil {
+					couplingReportForSmells = cr
+				}
+				var typeReportForSmells *typemetrics.Report
+				if tr, te := typemetrics.Analyze(analysisIdx, analysisIdx.Root, *xrefGraph); te == nil {
+					typeReportForSmells = tr
+				}
+				var compReportForSmells *complexity.Report
+				if complexityErr == nil {
+					enriched := *complexityReport
+					complexity.EnrichWithXref(&enriched, *xrefGraph)
+					compReportForSmells = &enriched
+				}
+				smellInput := smells.Input{
+					Index:      analysisIdx,
+					XrefGraph:  *xrefGraph,
+					Complexity: compReportForSmells,
+					Coupling:   couplingReportForSmells,
+					Types:      typeReportForSmells,
+				}
+				smellReport := smells.Detect(smellInput)
+				rpt.SmellsTotal = smellReport.Summary.Total
+				rpt.SmellErrors = smellReport.Summary.BySeverity["error"]
+				rpt.SmellWarnings = smellReport.Summary.BySeverity["warn"]
+			}
+
 			// --- Hotspots (top 5) ---
 			hotspotReport, hotspotErr := hotspot.Analyze(analysisIdx, hotspot.Options{
 				Root:  target,
@@ -423,6 +458,15 @@ func printMarkdownReport(rpt Report, delta *Report, target string) {
 	fmt.Printf("- %d unreferenced functions\n", rpt.DeadFunctions)
 	if delta != nil {
 		printDelta("dead functions", rpt.DeadFunctions, delta.DeadFunctions)
+	}
+	fmt.Println()
+
+	// Structural Smells
+	fmt.Println("## Structural Smells")
+	fmt.Printf("- %d total smells (%d errors, %d warnings)\n", rpt.SmellsTotal, rpt.SmellErrors, rpt.SmellWarnings)
+	if delta != nil {
+		printDelta("smells total", rpt.SmellsTotal, delta.SmellsTotal)
+		printDelta("smell errors", rpt.SmellErrors, delta.SmellErrors)
 	}
 	fmt.Println()
 

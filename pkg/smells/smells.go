@@ -447,6 +447,12 @@ func severityOrder(s string) int {
 	return 1
 }
 
+// RecomputeSummary tallies smells by severity and by ID. Exported so callers
+// can recalculate after filtering.
+func RecomputeSummary(smells []Smell) SmellSummary {
+	return computeSummary(smells)
+}
+
 // computeSummary tallies smells by severity and by ID.
 func computeSummary(smells []Smell) SmellSummary {
 	summary := SmellSummary{

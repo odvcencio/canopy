@@ -12,6 +12,7 @@ import (
 	"github.com/odvcencio/canopy/pkg/complexity"
 	"github.com/odvcencio/canopy/pkg/coupling"
 	"github.com/odvcencio/canopy/pkg/sarif"
+	"github.com/odvcencio/canopy/pkg/smells"
 	"github.com/odvcencio/canopy/pkg/typemetrics"
 	"github.com/odvcencio/canopy/pkg/xref"
 )
@@ -70,6 +71,7 @@ func newCheckCmd() *cobra.Command {
 		maxLCOM            int
 		maxFields          int
 		maxInterfaceWidth  int
+		maxSmellsError     int
 	)
 
 	cmd := &cobra.Command{
@@ -199,10 +201,10 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
-			// Build xref graph once if needed by coupling or type metrics checks.
+			// Build xref graph once if needed by coupling, type metrics, or smell checks.
 			var graph xref.Graph
 			var graphErr error
-			needGraph := maxInstability > 0 || maxDistance > 0 || maxLCOM > 0 || maxFields > 0 || maxInterfaceWidth > 0
+			needGraph := maxInstability > 0 || maxDistance > 0 || maxLCOM > 0 || maxFields > 0 || maxInterfaceWidth > 0 || maxSmellsError > 0
 			if needGraph {
 				graph, graphErr = xref.Build(analysisIdx)
 			}
@@ -302,6 +304,43 @@ func newCheckCmd() *cobra.Command {
 							}
 						}
 					}
+				}
+			}
+
+			// Check 10: Structural smells (error severity count).
+			if maxSmellsError > 0 && graphErr == nil {
+				checksRun++
+				var compReport *complexity.Report
+				var couplingReport *coupling.Report
+				var typeReport *typemetrics.Report
+
+				if cr, cerr := complexity.Analyze(analysisIdx, analysisIdx.Root, complexity.Options{}); cerr == nil {
+					complexity.EnrichWithXref(cr, graph)
+					compReport = cr
+				}
+				if coupl, cErr := coupling.Analyze(analysisIdx, graph); cErr == nil {
+					couplingReport = coupl
+				}
+				if tr, tErr := typemetrics.Analyze(analysisIdx, analysisIdx.Root, graph); tErr == nil {
+					typeReport = tr
+				}
+
+				input := smells.Input{
+					Index:      analysisIdx,
+					XrefGraph:  graph,
+					Complexity: compReport,
+					Coupling:   couplingReport,
+					Types:      typeReport,
+				}
+				smellReport := smells.Detect(input)
+				errorCount := smellReport.Summary.BySeverity["error"]
+				if errorCount > maxSmellsError {
+					violations = append(violations, checkViolation{
+						Check:     "smells-error",
+						Name:      fmt.Sprintf("%d error-severity smells detected", errorCount),
+						Value:     errorCount,
+						Threshold: maxSmellsError,
+					})
 				}
 			}
 
@@ -414,5 +453,6 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxLCOM, "max-lcom", 0, "max LCOM-4 per package (0 to disable)")
 	cmd.Flags().IntVar(&maxFields, "max-fields", 0, "max fields per type (0 to disable)")
 	cmd.Flags().IntVar(&maxInterfaceWidth, "max-interface-width", 0, "max interface width (0 to disable)")
+	cmd.Flags().IntVar(&maxSmellsError, "max-smells-error", 0, "max error-severity structural smells (0 to disable)")
 	return cmd
 }

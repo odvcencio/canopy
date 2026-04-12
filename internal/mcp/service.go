@@ -444,6 +444,21 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_smells",
+			Description: "Detect structural code smells from complexity, coupling, and type metrics",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"id":                {Type: "string", Description: "comma-separated smell ID filter (e.g. god_function,feature_envy)"},
+					"severity":          {Type: "string", Description: "filter by severity: error or warn"},
+					"top":               {Type: "integer", Description: "limit to top N results (default: all)"},
+					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
+					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_boundaries",
 			Description: "Check module boundary rules from .canopyboundaries config",
 			InputSchema: Schema{
@@ -680,6 +695,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callHotspot(args)
 	case "gts_check":
 		return s.callCheck(args)
+	case "gts_smells":
+		return s.callSmells(args)
 	case "gts_boundaries":
 		return s.callBoundaries(args)
 	case "gts_reachability":
