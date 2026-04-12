@@ -529,3 +529,110 @@ func branching() {
 		}
 	}
 }
+
+func TestReturnsCount(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+func multiReturn(x int) int {
+	if x < 0 {
+		return -1
+	}
+	if x == 0 {
+		return 0
+	}
+	return 1
+}
+`
+	path := filepath.Join(dir, "returns.go")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := &model.Index{
+		Version:     "1",
+		Root:        dir,
+		GeneratedAt: time.Now(),
+		Files: []model.FileSummary{
+			{
+				Path:     path,
+				Language: "go",
+				Symbols: []model.Symbol{
+					{
+						File:      path,
+						Kind:      "function_definition",
+						Name:      "multiReturn",
+						Signature: "func multiReturn(x int) int",
+						StartLine: 3,
+						EndLine:   11,
+					},
+				},
+			},
+		},
+	}
+
+	report, err := Analyze(idx, dir, Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(report.Functions))
+	}
+
+	fn := report.Functions[0]
+	if fn.Returns != 3 {
+		t.Errorf("expected Returns=3, got %d", fn.Returns)
+	}
+}
+
+func TestBoolDepth(t *testing.T) {
+	dir := t.TempDir()
+	src := `package main
+
+func boolCheck(a, b, c bool) bool {
+	if a && (b || c) {
+		return true
+	}
+	return false
+}
+`
+	path := filepath.Join(dir, "booldepth.go")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := &model.Index{
+		Version:     "1",
+		Root:        dir,
+		GeneratedAt: time.Now(),
+		Files: []model.FileSummary{
+			{
+				Path:     path,
+				Language: "go",
+				Symbols: []model.Symbol{
+					{
+						File:      path,
+						Kind:      "function_definition",
+						Name:      "boolCheck",
+						Signature: "func boolCheck(a, b, c bool) bool",
+						StartLine: 3,
+						EndLine:   8,
+					},
+				},
+			},
+		},
+	}
+
+	report, err := Analyze(idx, dir, Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.Functions) != 1 {
+		t.Fatalf("expected 1 function, got %d", len(report.Functions))
+	}
+
+	fn := report.Functions[0]
+	if fn.BoolDepth < 1 {
+		t.Errorf("expected BoolDepth >= 1, got %d", fn.BoolDepth)
+	}
+}

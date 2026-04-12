@@ -29,6 +29,8 @@ type FunctionMetrics struct {
 	Parameters int    `json:"parameters"`
 	FanIn      int    `json:"fan_in"`
 	FanOut     int    `json:"fan_out"`
+	Returns    int    `json:"returns"`
+	BoolDepth  int    `json:"bool_depth"`
 }
 
 // Summary holds aggregate statistics across all analyzed functions.
@@ -134,7 +136,7 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 				continue
 			}
 
-			cyc, cog, maxNest := computeComplexity(rootNode, lang, body)
+			cyc, cog, maxNest, rets, boolDep := computeComplexity(rootNode, lang, body)
 			tree.Release()
 
 			metrics := FunctionMetrics{
@@ -149,6 +151,8 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 				Cognitive:  cog,
 				MaxNesting: maxNest,
 				Parameters: countParameters(sym.Signature),
+				Returns:    rets,
+				BoolDepth:  boolDep,
 			}
 
 			if opts.MinCyclomatic > 0 && metrics.Cyclomatic < opts.MinCyclomatic {
@@ -324,13 +328,15 @@ func containsLogicalOperator(text string) bool {
 
 // computeComplexity performs a recursive walk of the AST to compute cyclomatic complexity,
 // cognitive complexity, and maximum nesting depth.
-func computeComplexity(root *gotreesitter.Node, lang *gotreesitter.Language, source []byte) (cyclomatic, cognitive, maxNesting int) {
+func computeComplexity(root *gotreesitter.Node, lang *gotreesitter.Language, source []byte) (cyclomatic, cognitive, maxNesting, returns, boolDepth int) {
 	cyclomatic = 1 // base path
 	cognitive = 0
 	maxNesting = 0
+	returns = 0
+	boolDepth = 0
 
-	var walk func(node *gotreesitter.Node, branchingDepth int)
-	walk = func(node *gotreesitter.Node, branchingDepth int) {
+	var walk func(node *gotreesitter.Node, branchingDepth int, boolNesting int)
+	walk = func(node *gotreesitter.Node, branchingDepth int, boolNesting int) {
 		if node == nil {
 			return
 		}
@@ -347,6 +353,10 @@ func computeComplexity(root *gotreesitter.Node, lang *gotreesitter.Language, sou
 			}
 		}
 
+		if nodeType == "return_statement" {
+			returns++
+		}
+
 		if isLogicalOperatorNode(nodeType) {
 			text := node.Text(source)
 			if containsLogicalOperator(text) {
@@ -354,15 +364,19 @@ func computeComplexity(root *gotreesitter.Node, lang *gotreesitter.Language, sou
 				// For nested binary_expression nodes, each node contributes its own operator.
 				cyclomatic++
 				cognitive++
+				boolNesting++
+				if boolNesting > boolDepth {
+					boolDepth = boolNesting
+				}
 			}
 		}
 
 		for _, child := range node.Children() {
-			walk(child, branchingDepth)
+			walk(child, branchingDepth, boolNesting)
 		}
 	}
 
-	walk(root, 0)
+	walk(root, 0, 0)
 	return
 }
 
