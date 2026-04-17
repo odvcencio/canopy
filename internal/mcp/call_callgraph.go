@@ -12,6 +12,7 @@ func (s *Service) callCallgraph(args map[string]any) (any, error) {
 	regexMode := boolArg(args, "regex", false)
 	depth := intArg(args, "depth", 2)
 	reverse := boolArg(args, "reverse", false)
+	fileFilter := stringArg(args, "file")
 	target := s.stringArgOrDefault(args, "path", s.defaultRoot)
 	cachePath := s.stringArgOrDefault(args, "cache", s.defaultCache)
 
@@ -25,7 +26,10 @@ func (s *Service) callCallgraph(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots, err := graph.FindDefinitions(name, regexMode)
+	roots, err := graph.FindDefinitionsWithOptions(name, xref.FindDefinitionOptions{
+		Regex: regexMode,
+		File:  fileFilter,
+	})
 	if err != nil {
 		return nil, err
 	}

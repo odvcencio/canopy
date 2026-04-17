@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/odvcencio/canopy/pkg/model"
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
-	"github.com/odvcencio/canopy/pkg/model"
 )
 
 // BuildFromIndex constructs a scope graph for all files in an index.
@@ -40,6 +40,9 @@ func BuildFromIndex(idx *model.Index, rootPath string) (*Graph, error) {
 			tree, err = parser.Parse(src)
 		}
 		if err != nil {
+			continue
+		}
+		if tree == nil {
 			continue
 		}
 

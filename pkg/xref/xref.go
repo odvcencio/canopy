@@ -81,16 +81,23 @@ type Graph struct {
 	Unresolved  []UnresolvedCall `json:"unresolved,omitempty"`
 
 	// Index-based lookup maps — values are indices into Definitions or Edges.
-	defByID              map[string]int   // defID -> index into Definitions
-	callableByName       map[string][]int // name -> indices into Definitions
-	callableByPkgName    map[string][]int // pkg\x00name -> indices into Definitions
-	callableByFileName   map[string][]int // file\x00name -> indices into Definitions
-	callableByFile       map[string][]int // file -> indices into Definitions
+	defByID            map[string]int   // defID -> index into Definitions
+	callableByName     map[string][]int // name -> indices into Definitions
+	callableByPkgName  map[string][]int // pkg\x00name -> indices into Definitions
+	callableByFileName map[string][]int // file\x00name -> indices into Definitions
+	callableByFile     map[string][]int // file -> indices into Definitions
 
 	outgoingByDef map[string][]int // defID -> indices into Edges
 	incomingByDef map[string][]int // defID -> indices into Edges
 	outgoingCount map[string]int
 	incomingCount map[string]int
+}
+
+type FindDefinitionOptions struct {
+	Regex   bool
+	File    string
+	Package string
+	Kind    string
 }
 
 // EdgeCaller returns a pointer to the caller Definition for the given edge.
@@ -335,13 +342,26 @@ func Build(idx *model.Index) (Graph, error) {
 }
 
 func (g *Graph) FindDefinitions(pattern string, regexMode bool) ([]Definition, error) {
+	return g.FindDefinitionsWithOptions(pattern, FindDefinitionOptions{Regex: regexMode})
+}
+
+func (g *Graph) FindDefinitionsWithOptions(pattern string, opts FindDefinitionOptions) ([]Definition, error) {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return nil, fmt.Errorf("definition matcher cannot be empty")
 	}
+	if !opts.Regex && strings.TrimSpace(opts.File) == "" {
+		if file, name, ok := splitFileQualifiedPattern(pattern); ok {
+			opts.File = file
+			pattern = name
+		}
+	}
+	fileFilter := g.normalizeDefinitionFileQuery(opts.File)
+	packageFilter := normalizePathKey(opts.Package)
+	kindFilter := strings.ToLower(strings.TrimSpace(opts.Kind))
 
 	match := func(name string) bool { return name == pattern }
-	if regexMode {
+	if opts.Regex {
 		compiled, err := regexp.Compile(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("compile regex: %w", err)
@@ -357,10 +377,93 @@ func (g *Graph) FindDefinitions(pattern string, regexMode bool) ([]Definition, e
 		if !match(definition.Name) {
 			continue
 		}
+		if fileFilter != "" && !definitionFileMatches(definition.File, fileFilter) {
+			continue
+		}
+		if packageFilter != "" && normalizePathKey(definition.Package) != packageFilter {
+			continue
+		}
+		if kindFilter != "" && !definitionKindMatches(definition.Kind, kindFilter) {
+			continue
+		}
 		matches = append(matches, definition)
 	}
 	sortDefinitions(matches)
 	return matches, nil
+}
+
+func splitFileQualifiedPattern(pattern string) (file string, name string, ok bool) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return "", "", false
+	}
+	if idx := strings.LastIndex(pattern, "#"); idx > 0 && idx < len(pattern)-1 {
+		left := strings.TrimSpace(pattern[:idx])
+		right := strings.TrimSpace(pattern[idx+1:])
+		if looksLikeDefinitionFileQualifier(left) && right != "" {
+			return left, right, true
+		}
+	}
+	if idx := strings.LastIndex(pattern, ":"); idx > 0 && idx < len(pattern)-1 {
+		left := strings.TrimSpace(pattern[:idx])
+		right := strings.TrimSpace(pattern[idx+1:])
+		if looksLikeDefinitionFileQualifier(left) && right != "" {
+			return left, right, true
+		}
+	}
+	return "", "", false
+}
+
+func looksLikeDefinitionFileQualifier(value string) bool {
+	value = filepath.ToSlash(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	return strings.Contains(value, "/") || strings.HasPrefix(value, ".") || strings.Contains(filepath.Base(value), ".")
+}
+
+func (g *Graph) normalizeDefinitionFileQuery(file string) string {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return ""
+	}
+	if filepath.IsAbs(file) && strings.TrimSpace(g.Root) != "" {
+		if rel, err := filepath.Rel(g.Root, file); err == nil {
+			relSlash := filepath.ToSlash(rel)
+			if relSlash != ".." && !strings.HasPrefix(relSlash, "../") {
+				file = rel
+			}
+		}
+	}
+	file = filepath.ToSlash(filepath.Clean(file))
+	file = strings.TrimPrefix(file, "./")
+	if file == "." {
+		return ""
+	}
+	return file
+}
+
+func definitionFileMatches(definitionFile, filter string) bool {
+	definitionFile = filepath.ToSlash(filepath.Clean(definitionFile))
+	definitionFile = strings.TrimPrefix(definitionFile, "./")
+	filter = filepath.ToSlash(filepath.Clean(filter))
+	filter = strings.TrimPrefix(filter, "./")
+	if definitionFile == filter {
+		return true
+	}
+	return !strings.Contains(filter, "/") && strings.HasSuffix(definitionFile, "/"+filter)
+}
+
+func definitionKindMatches(kind, filter string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	switch filter {
+	case "function":
+		return strings.Contains(kind, "function")
+	case "method":
+		return strings.Contains(kind, "method")
+	default:
+		return kind == filter
+	}
 }
 
 func (g *Graph) IncomingCount(defID string) int {

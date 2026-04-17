@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/odvcencio/canopy/pkg/ignore"
 )
 
 func TestBuildPath_Directory(t *testing.T) {
@@ -33,11 +35,32 @@ func TestMain() {}
 	if idx.FileCount() != 1 {
 		t.Fatalf("expected 1 indexed file, got %d", idx.FileCount())
 	}
+	if len(idx.Errors) != 0 {
+		t.Fatalf("expected unsupported README.md to be skipped without parse errors, got %#v", idx.Errors)
+	}
 	if idx.SymbolCount() != 1 {
 		t.Fatalf("expected 1 symbol, got %d", idx.SymbolCount())
 	}
 	if idx.Files[0].Path != "main.go" {
 		t.Fatalf("expected relative path main.go, got %q", idx.Files[0].Path)
+	}
+}
+
+func TestShouldSkipIndexPath_UsesIgnoreMatcherForDirectories(t *testing.T) {
+	root := filepath.Clean("/repo")
+	matcher := ignore.ParsePatterns([]string{"generated/**"})
+
+	if !shouldSkipIndexPath(root, filepath.Join(root, "generated"), true, matcher) {
+		t.Fatal("expected generated directory to be skipped")
+	}
+	if !shouldSkipIndexPath(root, filepath.Join(root, ".cache"), true, matcher) {
+		t.Fatal("expected hidden directory to be skipped")
+	}
+	if shouldSkipIndexPath(root, root, true, matcher) {
+		t.Fatal("root directory should not be skipped")
+	}
+	if shouldSkipIndexPath(root, filepath.Join(root, "internal"), true, matcher) {
+		t.Fatal("unexpected skip for unrelated directory")
 	}
 }
 

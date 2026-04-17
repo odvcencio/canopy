@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -188,17 +190,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		ctx = context.Background()
 	}
 
-	if strings.TrimSpace(path) == "" {
-		path = "."
-	}
-
-	target, err := filepath.Abs(path)
-	if err != nil {
-		return nil, stats, err
-	}
-	target = filepath.Clean(target)
-
-	info, err := os.Stat(target)
+	target, info, err := resolveBuildTarget(path)
 	if err != nil {
 		return nil, stats, err
 	}
@@ -208,49 +200,82 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		return b.buildSingleFileWithOptions(ctx, target, info, previous, opts)
 	}
 
-	root := filepath.Clean(target)
+	return b.buildDirectoryWithOptions(ctx, target, previous, opts)
+}
 
+func resolveBuildTarget(path string) (string, os.FileInfo, error) {
+	if strings.TrimSpace(path) == "" {
+		path = "."
+	}
+	target, err := filepath.Abs(path)
+	if err != nil {
+		return "", nil, err
+	}
+	target = filepath.Clean(target)
+	info, err := os.Stat(target)
+	if err != nil {
+		return "", nil, err
+	}
+	return target, info, nil
+}
+
+func (b *Builder) buildDirectoryWithOptions(ctx context.Context, root string, previous *model.Index, opts BuildOptions) (*model.Index, BuildStats, error) {
+	stats := BuildStats{}
+	root = filepath.Clean(root)
 	previousByPath := previousFilesByPath(previous, root)
 	filesByPath := make(map[string]model.FileSummary, len(previousByPath))
 	errorsByPath := map[string]model.ParseError{}
 
-	// Build the gateway policy.
+	b.collectReusableFiles(root, previousByPath, filesByPath, &stats, opts)
+	policy := b.buildWalkPolicy(root, previousByPath)
+	b.consumeWalkResults(ctx, root, policy, filesByPath, errorsByPath, &stats, opts)
+
+	if langCount := countDistinctLanguages(filesByPath); langCount > 20 {
+		fmt.Fprintf(os.Stderr, "warning: %d distinct languages detected — this may cause high memory usage\n", langCount)
+	}
+
+	index := snapshotIndex(root, filesByPath, errorsByPath)
+	index.ConfigHashes = b.configHashes
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return index, stats, ctxErr
+	}
+	return index, stats, nil
+}
+
+func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.FileSummary) grammars.ParsePolicy {
 	policy := grammars.DefaultPolicy()
 	for dir := range DefaultSkipDirs() {
 		policy.SkipDirs = append(policy.SkipDirs, dir)
 	}
+	if b.ignore != nil {
+		policy.SkipDirs = append(policy.SkipDirs, b.ignore.DirectoryBasenames()...)
+	}
+
+	readyByExt := map[string]bool{}
 	// DefaultPolicy uses GOMAXPROCS for concurrency. Lazy grammar loading
 	// (sync.Once per language) prevents the OOM spikes that originally
 	// motivated serial parsing. GTS_MAX_CONCURRENT env var still overrides.
 	policy.ShouldParse = func(absPath string, size int64, modTime time.Time) bool {
-		// Skip files inside hidden directories (dot-prefixed), matching
-		// the old collectCandidates behaviour.
+		if shouldSkipIndexPath(root, absPath, false, b.ignore) {
+			return false
+		}
 		relPath, relErr := filepath.Rel(root, absPath)
 		if relErr != nil {
 			return false
 		}
 		relPath = filepath.ToSlash(relPath)
-		for _, seg := range strings.Split(relPath, "/") {
-			if strings.HasPrefix(seg, ".") && seg != "." {
-				return false
-			}
-		}
 
-		// Skip files matching ignore patterns.
-		if b.ignore != nil {
-			if b.ignore.Match(relPath, false) {
-				return false
-			}
-		}
-
-		// Skip files we have no parser for.
-		if _, ok := b.parserForPath(absPath); !ok {
+		// Skip files we have no parser for, or languages that cannot produce
+		// structural tags. The gateway parses before handing the tree back to
+		// canopy, so reject unsupported languages here to avoid expensive AST
+		// builds that would only become "no tags query" errors later.
+		parser, ok := b.parserForIndexPath(absPath, readyByExt)
+		if !ok {
 			return false
 		}
 
 		// Incremental reuse: skip files that haven't changed.
 		if prev, ok := previousByPath[relPath]; ok {
-			parser, _ := b.parserForPath(absPath)
 			lang := ""
 			if parser != nil {
 				lang = parser.Language()
@@ -282,15 +307,11 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 		}
 	}
 
-	// Wire ignore matcher's directory-level patterns into SkipDirs
-	// is not possible generically, but the gateway already skips .git,
-	// .graft, .hg, .svn, vendor, node_modules. The ShouldParse hook
-	// above handles hidden dirs and ignore-matched files.
+	return policy
+}
 
-	// Collect reused files from the previous index that are still present
-	// on disk and unchanged. We must also walk to discover them, but the
-	// gateway's ShouldParse=false means they won't appear in the channel.
-	// We pre-collect reused entries before the walk.
+func (b *Builder) collectReusableFiles(root string, previousByPath map[string]model.FileSummary, filesByPath map[string]model.FileSummary, stats *BuildStats, opts BuildOptions) {
+	readyByExt := map[string]bool{}
 	for relPath, prev := range previousByPath {
 		absPath := filepath.Join(root, filepath.FromSlash(relPath))
 		fi, statErr := os.Stat(absPath)
@@ -298,25 +319,14 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 			// File removed or inaccessible — don't reuse.
 			continue
 		}
-		parser, ok := b.parserForPath(absPath)
+		parser, ok := b.parserForIndexPath(absPath, readyByExt)
 		if !ok {
 			continue
 		}
 		if !canReuseSummary(prev, fi.Size(), fi.ModTime().UnixNano(), parser.Language()) {
 			continue
 		}
-		// Check hidden dir and ignore filters for the reused path too.
-		skip := false
-		for _, seg := range strings.Split(relPath, "/") {
-			if strings.HasPrefix(seg, ".") && seg != "." {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-		if b.ignore != nil && b.ignore.Match(relPath, false) {
+		if shouldSkipIndexPath(root, absPath, false, b.ignore) {
 			continue
 		}
 		entry := prev
@@ -337,26 +347,23 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 			Kind:    BuildEventReused,
 			Path:    relPath,
 			Summary: entry,
-			Stats:   stats,
+			Stats:   *stats,
 		})
 	}
+}
 
+func (b *Builder) consumeWalkResults(ctx context.Context, root string, policy grammars.ParsePolicy, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
 	results, statsFn := grammars.WalkAndParse(ctx, root, policy)
+	gcEvery := indexGCEvery()
+	processed := 0
 	for file := range results {
-		b.processWalkedFile(file, root, filesByPath, errorsByPath, &stats, opts)
+		b.processWalkedFile(file, root, filesByPath, errorsByPath, stats, opts)
+		processed++
+		if gcEvery > 0 && processed%gcEvery == 0 {
+			runtime.GC()
+		}
 	}
 	_ = statsFn()
-
-	if langCount := countDistinctLanguages(filesByPath); langCount > 20 {
-		fmt.Fprintf(os.Stderr, "warning: %d distinct languages detected — this may cause high memory usage\n", langCount)
-	}
-
-	index := snapshotIndex(root, filesByPath, errorsByPath)
-	index.ConfigHashes = b.configHashes
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return index, stats, ctxErr
-	}
-	return index, stats, nil
 }
 
 func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
@@ -490,6 +497,47 @@ func parseIndexedFile(parser lang.Parser, path string, source []byte, tree *gotr
 	return parser.Parse(path, source)
 }
 
+func indexGCEvery() int {
+	if raw := strings.TrimSpace(os.Getenv("CANOPY_INDEX_GC_EVERY")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return 0
+		}
+		return n
+	}
+	return 0
+}
+
+func parserReadyForIndex(parser lang.Parser) bool {
+	if parser == nil {
+		return false
+	}
+	if lazy, ok := parser.(indexTreesitterParser); ok {
+		_, err := lazy.TreesitterParser()
+		return err == nil
+	}
+	return true
+}
+
+func shouldSkipIndexPath(root, absPath string, isDir bool, matcher *ignore.Matcher) bool {
+	relPath, relErr := filepath.Rel(root, absPath)
+	if relErr != nil {
+		return true
+	}
+	relPath = filepath.ToSlash(relPath)
+	if relPath == "." {
+		return false
+	}
+
+	for _, seg := range strings.Split(relPath, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+
+	return matcher != nil && matcher.Match(relPath, isDir)
+}
+
 // buildSingleFile handles the single-file indexing path (when the target is
 // a file rather than a directory).
 func (b *Builder) buildSingleFileWithOptions(ctx context.Context, target string, info os.FileInfo, previous *model.Index, opts BuildOptions) (*model.Index, BuildStats, error) {
@@ -500,6 +548,9 @@ func (b *Builder) buildSingleFileWithOptions(ctx context.Context, target string,
 
 	parser, ok := b.parserForPath(target)
 	if !ok {
+		return snapshotIndex(root, filesByPath, errorsByPath), stats, nil
+	}
+	if !parserReadyForIndex(parser) {
 		return snapshotIndex(root, filesByPath, errorsByPath), stats, nil
 	}
 
@@ -635,6 +686,26 @@ func (b *Builder) parserForPath(path string) (lang.Parser, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
 	parser, ok := b.parsers[ext]
 	return parser, ok
+}
+
+func (b *Builder) parserForIndexPath(path string, readyByExt map[string]bool) (lang.Parser, bool) {
+	ext := strings.ToLower(filepath.Ext(path))
+	parser, ok := b.parsers[ext]
+	if !ok {
+		return nil, false
+	}
+	if ready, cached := readyByExt[ext]; cached {
+		if !ready {
+			return nil, false
+		}
+		return parser, true
+	}
+	ready := parserReadyForIndex(parser)
+	readyByExt[ext] = ready
+	if !ready {
+		return nil, false
+	}
+	return parser, true
 }
 
 func (b *Builder) ParserForPath(path string) (lang.Parser, bool) {

@@ -4,6 +4,7 @@ package ignore
 import (
 	"bufio"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -18,6 +19,31 @@ type pattern struct {
 // Matcher evaluates file paths against a set of gitignore-style patterns.
 type Matcher struct {
 	patterns []pattern
+}
+
+// DirectoryBasenames returns directory names that can be safely pruned by a
+// basename-only directory walker. It is intentionally conservative: negated
+// pattern sets return no names because later negations can re-include paths.
+func (m *Matcher) DirectoryBasenames() []string {
+	if m == nil || len(m.patterns) == 0 {
+		return nil
+	}
+
+	for _, p := range m.patterns {
+		if p.negated {
+			return nil
+		}
+	}
+
+	seen := map[string]bool{}
+	var names []string
+	for _, p := range m.patterns {
+		if name := directoryBasenamePattern(p); name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // Load reads patterns from a file, one per line.
@@ -127,6 +153,13 @@ func ancestorDirectories(path string) []string {
 // Patterns without a slash match against the basename only.
 // Patterns with a slash match against the full path.
 func matchPattern(glob, path string) bool {
+	glob = filepath.ToSlash(glob)
+	path = filepath.ToSlash(path)
+
+	if strings.Contains(glob, "**") {
+		return matchRecursivePattern(glob, path)
+	}
+
 	if strings.Contains(glob, "/") {
 		matched, _ := filepath.Match(glob, path)
 		return matched
@@ -146,4 +179,96 @@ func matchPattern(glob, path string) bool {
 		}
 	}
 	return false
+}
+
+func matchRecursivePattern(glob, filePath string) bool {
+	patternParts := splitPatternPath(glob)
+	pathParts := splitPatternPath(filePath)
+	memo := make(map[[2]int]bool)
+	seen := make(map[[2]int]bool)
+
+	var match func(patternIndex, pathIndex int) bool
+	match = func(patternIndex, pathIndex int) bool {
+		key := [2]int{patternIndex, pathIndex}
+		if seen[key] {
+			return memo[key]
+		}
+		seen[key] = true
+
+		var result bool
+		defer func() {
+			memo[key] = result
+		}()
+
+		if patternIndex == len(patternParts) {
+			result = pathIndex == len(pathParts)
+			return result
+		}
+
+		part := patternParts[patternIndex]
+		if part == "**" {
+			for nextPathIndex := pathIndex; nextPathIndex <= len(pathParts); nextPathIndex++ {
+				if match(patternIndex+1, nextPathIndex) {
+					result = true
+					return result
+				}
+			}
+			return false
+		}
+
+		if pathIndex >= len(pathParts) {
+			return false
+		}
+
+		matched, err := path.Match(part, pathParts[pathIndex])
+		if err != nil || !matched {
+			return false
+		}
+
+		result = match(patternIndex+1, pathIndex+1)
+		return result
+	}
+
+	return match(0, 0)
+}
+
+func splitPatternPath(path string) []string {
+	path = strings.TrimPrefix(filepath.ToSlash(path), "./")
+	path = strings.Trim(path, "/")
+	if path == "" || path == "." {
+		return nil
+	}
+	return strings.Split(path, "/")
+}
+
+func directoryBasenamePattern(p pattern) string {
+	glob := strings.TrimPrefix(filepath.ToSlash(p.glob), "./")
+	glob = strings.Trim(glob, "/")
+	if glob == "" || glob == "." {
+		return ""
+	}
+
+	if p.dirOnly {
+		return literalDirectoryBasename(glob)
+	}
+
+	if strings.HasSuffix(glob, "/**") {
+		prefix := strings.TrimSuffix(glob, "/**")
+		if strings.HasPrefix(prefix, "**/") {
+			return literalDirectoryBasename(strings.TrimPrefix(prefix, "**/"))
+		}
+		return literalDirectoryBasename(prefix)
+	}
+	return ""
+}
+
+func literalDirectoryBasename(glob string) string {
+	if glob == "" || strings.ContainsAny(glob, "*?[") {
+		return ""
+	}
+	parts := strings.Split(glob, "/")
+	if len(parts) != 1 {
+		return ""
+	}
+	return parts[0]
 }

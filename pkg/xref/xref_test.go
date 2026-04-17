@@ -645,6 +645,53 @@ func TestFindDefinitionsByName(t *testing.T) {
 	}
 }
 
+func TestFindDefinitionsByFileQualifiedName(t *testing.T) {
+	idx := &model.Index{
+		Root: "/tmp/findqualified",
+		Files: []model.FileSummary{
+			{
+				Path: "cmd/build.go",
+				Symbols: []model.Symbol{
+					{File: "cmd/build.go", Kind: "function_definition", Name: "Build", StartLine: 1, EndLine: 3},
+				},
+			},
+			{
+				Path: "pkg/build.go",
+				Symbols: []model.Symbol{
+					{File: "pkg/build.go", Kind: "function_definition", Name: "Build", StartLine: 5, EndLine: 7},
+				},
+			},
+		},
+	}
+
+	graph, err := Build(idx)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	matches, err := graph.FindDefinitions("pkg/build.go:Build", false)
+	if err != nil {
+		t.Fatalf("FindDefinitions returned error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 qualified match, got %d", len(matches))
+	}
+	if matches[0].File != "pkg/build.go" {
+		t.Fatalf("expected pkg/build.go, got %q", matches[0].File)
+	}
+
+	matches, err = graph.FindDefinitionsWithOptions("Build", FindDefinitionOptions{File: "cmd/build.go"})
+	if err != nil {
+		t.Fatalf("FindDefinitionsWithOptions returned error: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 file-filtered match, got %d", len(matches))
+	}
+	if matches[0].File != "cmd/build.go" {
+		t.Fatalf("expected cmd/build.go, got %q", matches[0].File)
+	}
+}
+
 func TestFindDefinitionsByRegex(t *testing.T) {
 	idx := &model.Index{
 		Root: "/tmp/findregex",

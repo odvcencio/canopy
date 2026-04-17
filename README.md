@@ -27,6 +27,10 @@ canopy analyze report --format markdown
 canopy mcp --root .
 ```
 
+## Current Release
+
+`v0.16.0` upgrades gotreesitter to `v0.15.0` and tightens self-indexing for large repositories. Index walks now prune ignored directories before descent, skip unsupported/tagless grammars before parsing, and support `CANOPY_INDEX_GC_EVERY` for constrained containers. Call graph roots can also be narrowed with `--file` or `path/to/file.go:Name` when multiple definitions share a name.
+
 ## Commands
 
 ### Index — Build and manage structural indexes

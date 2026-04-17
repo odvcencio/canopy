@@ -85,6 +85,77 @@ func TestMatch_PathWithSlash(t *testing.T) {
 	}
 }
 
+func TestMatch_RecursivePathPattern(t *testing.T) {
+	m := ParsePatterns([]string{"grammars/**"})
+	if !m.Match("grammars", true) {
+		t.Error("expected recursive pattern to match root directory")
+	}
+	if !m.Match("grammars/go.go", false) {
+		t.Error("expected recursive pattern to match direct child")
+	}
+	if !m.Match("grammars/nested/go.go", false) {
+		t.Error("expected recursive pattern to match nested child")
+	}
+	if m.Match("pkg/grammars/go.go", false) {
+		t.Error("unexpected match outside recursive path")
+	}
+}
+
+func TestMatch_RecursiveMiddlePattern(t *testing.T) {
+	m := ParsePatterns([]string{"**/testdata/**"})
+	if !m.Match("testdata/root.go", false) {
+		t.Error("expected recursive middle pattern to match root testdata")
+	}
+	if !m.Match("pkg/testdata/case.go", false) {
+		t.Error("expected recursive middle pattern to match nested testdata")
+	}
+	if !m.Match("pkg/internal/testdata/nested/case.go", false) {
+		t.Error("expected recursive middle pattern to match deeper testdata")
+	}
+	if m.Match("pkg/internal/data/case.go", false) {
+		t.Error("unexpected match outside testdata")
+	}
+}
+
+func TestMatch_RecursivePatternNegation(t *testing.T) {
+	m := ParsePatterns([]string{"grammars/**", "!grammars/keep.go"})
+	if !m.Match("grammars/drop.go", false) {
+		t.Error("expected recursive pattern to ignore dropped file")
+	}
+	if m.Match("grammars/keep.go", false) {
+		t.Error("expected negation to restore kept file")
+	}
+}
+
+func TestDirectoryBasenames(t *testing.T) {
+	m := ParsePatterns([]string{
+		"grammars/**",
+		"**/testdata/**",
+		"build/",
+		"pkg/generated/**",
+		"*.log",
+	})
+	got := map[string]bool{}
+	for _, name := range m.DirectoryBasenames() {
+		got[name] = true
+	}
+	for _, want := range []string{"grammars", "testdata", "build"} {
+		if !got[want] {
+			t.Fatalf("expected prunable directory %q, got %v", want, got)
+		}
+	}
+	if got["generated"] {
+		t.Fatalf("path-scoped nested directory should not be basename-pruned: %v", got)
+	}
+}
+
+func TestDirectoryBasenames_NegationDisablesPruning(t *testing.T) {
+	m := ParsePatterns([]string{"grammars/**", "!grammars/keep.go"})
+	if got := m.DirectoryBasenames(); len(got) != 0 {
+		t.Fatalf("expected no prunable directories when negation is present, got %v", got)
+	}
+}
+
 func TestMatch_NilMatcher(t *testing.T) {
 	var m *Matcher
 	if m.Match("anything", false) {

@@ -47,6 +47,10 @@ func BuildFileScope(
 	path string,
 ) *Scope {
 	root := NewScope(ScopeFile, nil)
+	if tree == nil || rules == nil || rules.Query == nil {
+		return root
+	}
+
 	seen := make(map[defKey]bool)
 
 	cursor := rules.Query.Exec(tree.RootNode(), lang, src)

@@ -21,6 +21,7 @@ func newCallgraphCmd() *cobra.Command {
 	var countOnly bool
 	var dotOutput bool
 	var kind string
+	var fileFilter string
 
 	cmd := &cobra.Command{
 		Use:     "calls <name|regex> [path]",
@@ -47,7 +48,10 @@ func newCallgraphCmd() *cobra.Command {
 				return err
 			}
 
-			roots, err := graph.FindDefinitions(args[0], regexMode)
+			roots, err := graph.FindDefinitionsWithOptions(args[0], xref.FindDefinitionOptions{
+				Regex: regexMode,
+				File:  fileFilter,
+			})
 			if err != nil {
 				return err
 			}
@@ -166,6 +170,7 @@ func newCallgraphCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&countOnly, "count", false, "print the number of traversed edges")
 	cmd.Flags().BoolVar(&dotOutput, "dot", false, "emit DOT graph for Graphviz visualization")
 	cmd.Flags().StringVar(&kind, "kind", "", "filter root definitions by kind (function|method)")
+	cmd.Flags().StringVar(&fileFilter, "file", "", "filter root definitions by source file")
 	return cmd
 }
 

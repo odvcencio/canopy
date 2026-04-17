@@ -16,10 +16,18 @@ func mustParseGo(t *testing.T, src string) (*gotreesitter.Tree, *gotreesitter.La
 	lang := entry.Language()
 	parser := gotreesitter.NewParser(lang)
 	srcBytes := []byte(src)
-	ts := entry.TokenSourceFactory(srcBytes, lang)
-	tree, err := parser.ParseWithTokenSource(srcBytes, ts)
+	var tree *gotreesitter.Tree
+	var err error
+	if entry.TokenSourceFactory != nil {
+		tree, err = parser.ParseWithTokenSource(srcBytes, entry.TokenSourceFactory(srcBytes, lang))
+	} else {
+		tree, err = parser.Parse(srcBytes)
+	}
 	if err != nil {
 		t.Fatalf("parse: %v", err)
+	}
+	if tree == nil {
+		t.Fatal("parse returned nil tree")
 	}
 	return tree, lang
 }

@@ -1,5 +1,10 @@
 .canopy/
+.gts/
 .worktrees/
 /canopy
 /canopyls
+/gtsls
+.claude/
+docs/blog-outlines/
+docs/plans/
 docs/superpowers/

@@ -6,6 +6,32 @@ All notable changes to this project are documented in this file.
 
 - Nothing yet.
 
+## [0.16.0] - 2026-04-17
+
+Safer, faster self-indexing release focused on memory-bounded repository walks,
+lower parser waste, and sharper call graph disambiguation for agents.
+
+### Added
+- **`.canopyignore` directory pruning** — literal directory ignore patterns are now passed into the gotreesitter walk policy so ignored trees are skipped before file discovery and parsing.
+- **`CANOPY_INDEX_GC_EVERY`** — optional index-build tuning knob that forces a garbage collection after every N parsed files for constrained containers and large mixed-language repositories.
+- **`canopy graph calls --file`** and MCP `gts_callgraph.file` — restrict ambiguous call graph roots to a source file without relying on broad name matches.
+- **File-qualified call graph roots** — `path/to/file.go:Name` and `path/to/file.go#Name` resolve directly to definitions in that file.
+
+### Changed
+- Upgraded `gotreesitter` to `v0.15.0`, including `ParsePolicy.ShouldSkipDir`, GLR cache improvements, parser-result compatibility cleanup, and the latest grammar/parity fixes.
+- `index build` now rejects unsupported or tagless grammars before invoking the gateway parse, avoiding AST work that can only become a "no tags query" error.
+- The index builder was split into focused target resolution, walk-policy, reuse, and result-consumption helpers to keep the hot path easier to profile and tune.
+- Single-file indexing now loads `.canopyignore` and `.graftignore` from the parent directory instead of looking beside the file path itself.
+
+### Fixed
+- Recursive ignore patterns with `**` now match correctly across path segments.
+- Incremental reuse paths now apply the same hidden-directory and ignore filters as freshly walked files.
+- Call graph definition lookup can distinguish same-named functions by file, package, and kind.
+
+### Performance
+- Self-indexing canopy now skips ignored directories before descent and avoids parsing files from languages that cannot emit structural tags.
+- Large repository sweeps can be run with explicit GC cadence when RSS matters more than raw throughput.
+
 ## [0.14.0] - 2026-04-01
 
 Enterprise-grade structural analysis. Six feature phases adding architecture governance, security intelligence, CI/CD integration, multi-repo federation, AI agent enhancement, and executive reporting.

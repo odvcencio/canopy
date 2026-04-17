@@ -20,6 +20,14 @@ import (
 )
 
 func loadIndexIgnoreLines(target string) ([]string, error) {
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		target = filepath.Dir(target)
+	}
+
 	var lines []string
 	for _, name := range []string{".graftignore", ".canopyignore"} {
 		data, err := os.ReadFile(filepath.Join(target, name))
@@ -35,16 +43,16 @@ func loadIndexIgnoreLines(target string) ([]string, error) {
 }
 
 type indexBuildOpts struct {
-	outPath             string
-	jsonOutput          bool
-	incremental         bool
-	watch               bool
-	subfileIncremental  bool
-	poll                bool
-	reportChanges       bool
-	onceIfChanged       bool
-	interval            time.Duration
-	ignorePatterns      []string
+	outPath            string
+	jsonOutput         bool
+	incremental        bool
+	watch              bool
+	subfileIncremental bool
+	poll               bool
+	reportChanges      bool
+	onceIfChanged      bool
+	interval           time.Duration
+	ignorePatterns     []string
 }
 
 func runIndexBuild(args []string, opts indexBuildOpts) error {

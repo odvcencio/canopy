@@ -682,6 +682,63 @@ func main() {
 	}
 }
 
+func TestRunCallgraphFileQualifiedRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	files := map[string]string{
+		"a.go": `package sample
+
+func One() {}
+
+func Build() {
+	One()
+}
+`,
+		"b.go": `package sample
+
+func Two() {}
+
+func Build() {
+	Two()
+}
+`,
+	}
+	for name, source := range files {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(source), 0o644); err != nil {
+			t.Fatalf("WriteFile %s failed: %v", name, err)
+		}
+	}
+
+	originalStdout := os.Stdout
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe failed: %v", err)
+	}
+	os.Stdout = writePipe
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	runErr := runCallgraph([]string{
+		"a.go:Build",
+		tmpDir,
+		"--depth",
+		"1",
+		"--count",
+	})
+	_ = writePipe.Close()
+	if runErr != nil {
+		t.Fatalf("runCallgraph returned error: %v", runErr)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(readPipe); err != nil {
+		t.Fatalf("ReadFrom failed: %v", err)
+	}
+	if strings.TrimSpace(output.String()) != "1" {
+		t.Fatalf("unexpected callgraph count output %q", output.String())
+	}
+}
+
 func TestRunDeadCount(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourcePath := filepath.Join(tmpDir, "main.go")

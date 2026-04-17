@@ -26,6 +26,9 @@ func mustParseLang(t *testing.T, filename, src string) (*gotreesitter.Tree, *got
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+	if tree == nil {
+		t.Fatal("parse returned nil tree")
+	}
 	return tree, lang, entry.Name
 }
 
