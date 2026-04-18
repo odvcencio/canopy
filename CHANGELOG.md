@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 
 ### Performance
 - Index walks now use `ParsePolicy.ShouldSkipDir` for full `.canopyignore` and hidden-directory pruning before descent, not just basename-only skip lists.
+- Direct full-file tree-sitter parses now use gotreesitter's concurrency-safe `ParserPool`, keeping parser state scrubbing and arena-reference release aligned with gateway indexing.
 
 ## [0.16.0] - 2026-04-17
 
