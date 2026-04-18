@@ -250,6 +250,9 @@ func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.F
 	if b.ignore != nil {
 		policy.SkipDirs = append(policy.SkipDirs, b.ignore.DirectoryBasenames()...)
 	}
+	policy.ShouldSkipDir = func(absPath string) bool {
+		return shouldSkipIndexPath(root, absPath, true, b.ignore)
+	}
 
 	readyByExt := map[string]bool{}
 	// DefaultPolicy uses GOMAXPROCS for concurrency. Lazy grammar loading

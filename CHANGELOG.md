@@ -4,7 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-- Nothing yet.
+### Changed
+- Upgraded `gotreesitter` to `v0.15.1`, carrying the arena, retry, query predicate, and GLR cache fixes from the current v0.15 patch line.
+
+### Performance
+- Index walks now use `ParsePolicy.ShouldSkipDir` for full `.canopyignore` and hidden-directory pruning before descent, not just basename-only skip lists.
 
 ## [0.16.0] - 2026-04-17
 
