@@ -17,12 +17,13 @@ import (
 )
 
 type Parser struct {
-	entry       grammars.LangEntry
-	lang        *gotreesitter.Language
-	parserPool  sync.Pool
-	tagsQuery   *gotreesitter.Query
-	treeLocksMu sync.Mutex
-	treeLocks   map[*gotreesitter.Tree]*treeLockEntry
+	entry                 grammars.LangEntry
+	lang                  *gotreesitter.Language
+	fullParserPool        *gotreesitter.ParserPool
+	incrementalParserPool sync.Pool
+	tagsQuery             *gotreesitter.Query
+	treeLocksMu           sync.Mutex
+	treeLocks             map[*gotreesitter.Tree]*treeLockEntry
 }
 
 type treeLockEntry struct {
@@ -53,11 +54,12 @@ func NewParser(entry grammars.LangEntry) (*Parser, error) {
 	}
 
 	return &Parser{
-		entry:     entry,
-		lang:      lang,
-		tagsQuery: tagsQuery,
-		treeLocks: make(map[*gotreesitter.Tree]*treeLockEntry),
-		parserPool: sync.Pool{
+		entry:          entry,
+		lang:           lang,
+		fullParserPool: gotreesitter.NewParserPool(lang),
+		tagsQuery:      tagsQuery,
+		treeLocks:      make(map[*gotreesitter.Tree]*treeLockEntry),
+		incrementalParserPool: sync.Pool{
 			New: func() any { return gotreesitter.NewParser(lang) },
 		},
 	}, nil
@@ -251,14 +253,11 @@ func (p *Parser) extractTags(root *gotreesitter.Node, src []byte) []gotreesitter
 }
 
 func (p *Parser) parseTree(src []byte) (*gotreesitter.Tree, error) {
-	parser := p.acquireParser()
-	defer p.releaseParser(parser)
-
 	if p.entry.TokenSourceFactory != nil {
 		ts := p.entry.TokenSourceFactory(src, p.lang)
 		if ts != nil {
 			tree, err := safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
-				return parser.ParseWithTokenSource(src, ts)
+				return p.fullParserPool.ParseWithTokenSource(src, ts)
 			})
 			if err == nil && tree != nil && tree.RootNode() != nil && strings.TrimSpace(tree.RootNode().Type(p.lang)) != "" {
 				return tree, nil
@@ -269,7 +268,7 @@ func (p *Parser) parseTree(src []byte) (*gotreesitter.Tree, error) {
 		}
 	}
 	return safeParseCall(p.Language(), func() (*gotreesitter.Tree, error) {
-		return parser.Parse(src)
+		return p.fullParserPool.Parse(src)
 	})
 }
 
@@ -314,7 +313,7 @@ func safeParseCall(language string, fn func() (*gotreesitter.Tree, error)) (tree
 }
 
 func (p *Parser) acquireParser() *gotreesitter.Parser {
-	candidate := p.parserPool.Get()
+	candidate := p.incrementalParserPool.Get()
 	if parser, ok := candidate.(*gotreesitter.Parser); ok && parser != nil {
 		return parser
 	}
@@ -325,7 +324,7 @@ func (p *Parser) releaseParser(parser *gotreesitter.Parser) {
 	if parser == nil {
 		return
 	}
-	p.parserPool.Put(parser)
+	p.incrementalParserPool.Put(parser)
 }
 
 func (p *Parser) lockTree(tree *gotreesitter.Tree) func() {

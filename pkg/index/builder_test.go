@@ -64,6 +64,36 @@ func TestShouldSkipIndexPath_UsesIgnoreMatcherForDirectories(t *testing.T) {
 	}
 }
 
+func TestBuildWalkPolicy_UsesShouldSkipDirForDirectoryPruning(t *testing.T) {
+	root := filepath.Clean("/repo")
+	builder := &Builder{
+		ignore: ignore.ParsePatterns([]string{
+			"generated/**",
+			"third_party/snapshots/",
+		}),
+	}
+
+	policy := builder.buildWalkPolicy(root, nil)
+	if policy.ShouldSkipDir == nil {
+		t.Fatal("expected ShouldSkipDir hook")
+	}
+	if policy.ShouldSkipDir(root) {
+		t.Fatal("root directory should not be skipped")
+	}
+	if !policy.ShouldSkipDir(filepath.Join(root, "generated")) {
+		t.Fatal("expected generated directory to be skipped before descent")
+	}
+	if !policy.ShouldSkipDir(filepath.Join(root, "third_party", "snapshots")) {
+		t.Fatal("expected nested directory-only ignore pattern to be skipped before descent")
+	}
+	if !policy.ShouldSkipDir(filepath.Join(root, ".cache")) {
+		t.Fatal("expected hidden directory to be skipped before descent")
+	}
+	if policy.ShouldSkipDir(filepath.Join(root, "internal")) {
+		t.Fatal("unexpected skip for unrelated directory")
+	}
+}
+
 func TestBuildPath_Directory_MultiLanguageAutoRegistration(t *testing.T) {
 	tmpDir := t.TempDir()
 
