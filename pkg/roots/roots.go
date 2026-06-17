@@ -100,14 +100,28 @@ func New(root string) *Analyzer {
 	return NewWithOptions(root, Options{})
 }
 
-// NewWithOptions returns an Analyzer with custom options.
+// NewWithOptions returns an Analyzer with custom options and the built-in
+// profiles only.
 func NewWithOptions(root string, opts Options) *Analyzer {
+	a, _ := NewWithConfig(root, opts, nil)
+	return a
+}
+
+// NewWithConfig returns an Analyzer with the given options, merging an optional
+// user .canopyroots config over the built-in profiles. It errors only if the
+// config is semantically invalid (unknown syntax sigil, bad regex); a nil config
+// is the unconfigured common case.
+func NewWithConfig(root string, opts Options, cfg *Config) (*Analyzer, error) {
+	reg := newRegistry(opts.ExtraRootAnnotations)
+	if err := cfg.applyTo(reg); err != nil {
+		return nil, err
+	}
 	return &Analyzer{
 		root:      root,
-		reg:       newRegistry(opts.ExtraRootAnnotations),
+		reg:       reg,
 		opts:      opts,
 		fileCache: map[string][]string{},
-	}
+	}, nil
 }
 
 // IsRoot reports whether def is a reachability root (invokable without a static
@@ -134,17 +148,23 @@ func (a *Analyzer) IsRoot(def xref.Definition, defs []xref.Definition) (bool, st
 	// --- Test file ---
 	testFile := a.isTestFile(def.File, p)
 
-	// --- Test annotation / test name ---
+	// Peek the def's real annotation/decorator block once and reuse it for the
+	// test and method-root checks. canopy folds only the FIRST leading
+	// annotation into the Java symbol Signature and folds nothing for
+	// Python/TS/C#/Rust, so source-peek (lines at and above the declaration) is
+	// the reliable read. Dotted/path decorators (@app.route, #[tokio::main])
+	// also yield their head token, so "app"/"tokio" entries match.
+	var peeked map[string]bool
 	if p != nil {
-		if ok, reason := a.checkTest(def, p, testFile); ok {
-			return true, reason
-		}
-	} else if testFile {
-		return true, "test"
+		peeked = a.annotationNamesAbove(def.File, def.StartLine, p.Syntax)
 	}
 
-	if testFile {
-		// Already captured above, but guard against p==nil path falling through.
+	// --- Test file / annotation / name ---
+	if p != nil {
+		if a.checkTest(def, p, testFile, peeked) {
+			return true, "test"
+		}
+	} else if testFile {
 		return true, "test"
 	}
 
@@ -153,12 +173,6 @@ func (a *Analyzer) IsRoot(def xref.Definition, defs []xref.Definition) (bool, st
 		if annName, ok := a.annotationInSet(def.Signature, p.Syntax, p.MethodRootAnnotations); ok {
 			return true, "annotation:@" + annName
 		}
-		// Source-peek: canopy folds only the FIRST leading annotation into the
-		// Java symbol Signature and folds nothing for Python/TS/C#, so read the
-		// real annotation/decorator block from source (lines at and above the
-		// declaration). Dotted decorators (@app.route) also yield their head
-		// token, so "app"/"router" entries match.
-		peeked := a.annotationNamesAbove(def.File, def.StartLine, p.Syntax)
 		if annName, ok := setIntersects(peeked, p.MethodRootAnnotations); ok {
 			return true, "annotation:@" + annName
 		}
@@ -217,23 +231,25 @@ func (a *Analyzer) checkEntrypoint(def xref.Definition, p *Profile) (bool, strin
 	return true, "entrypoint"
 }
 
-// checkTest returns (true, "test") if def is a test function/method.
-func (a *Analyzer) checkTest(def xref.Definition, p *Profile, testFile bool) (bool, string) {
-	// Test file path.
+// checkTest reports whether def is a test: a test file, a test
+// annotation/decorator (from the signature or the source-peeked set), or a
+// test-name pattern. peeked is the annotation set from annotationNamesAbove.
+func (a *Analyzer) checkTest(def xref.Definition, p *Profile, testFile bool, peeked map[string]bool) bool {
 	if testFile {
-		return true, "test"
+		return true
 	}
-	// Test annotation.
 	if len(p.TestAnnotations) > 0 {
 		if _, ok := a.annotationInSet(def.Signature, p.Syntax, p.TestAnnotations); ok {
-			return true, "test"
+			return true
+		}
+		if _, ok := setIntersects(peeked, p.TestAnnotations); ok {
+			return true
 		}
 	}
-	// Test function name pattern.
 	if p.TestFuncPattern != nil && p.TestFuncPattern.MatchString(def.Name) {
-		return true, "test"
+		return true
 	}
-	return false, ""
+	return false
 }
 
 // isTestFile returns true if the file path matches the profile's test file rules.
@@ -304,27 +320,32 @@ func (a *Analyzer) annotationNamesAbove(file string, startLine int, syntax annot
 	if len(lines) == 0 || startLine < 1 {
 		return nil
 	}
-	sigil := byte(syntax[0]) // '@' or '['
+	sigil := string(syntax) // "@", "[", or "#["
 	out := map[string]bool{}
 
 	collect := func(line string) {
 		t := strings.TrimSpace(line)
-		if t == "" || t[0] != sigil {
+		if !strings.HasPrefix(t, sigil) {
 			return
 		}
-		name := identToken(t[1:])
+		name := identToken(t[len(sigil):])
 		if name == "" {
 			return
 		}
 		out[name] = true
+		// Dotted/path decorators also yield their head token: @app.route → "app",
+		// #[tokio::main] → "tokio".
 		if dot := strings.IndexByte(name, '.'); dot > 0 {
 			out[name[:dot]] = true
+		}
+		if cc := strings.Index(name, "::"); cc > 0 {
+			out[name[:cc]] = true
 		}
 	}
 
 	isBlockLine := func(line string) bool {
 		t := strings.TrimSpace(line)
-		if t == "" || t[0] == sigil {
+		if t == "" || strings.HasPrefix(t, sigil) {
 			return true
 		}
 		return strings.HasPrefix(t, "//") || strings.HasPrefix(t, "*") ||
@@ -342,10 +363,10 @@ func (a *Analyzer) annotationNamesAbove(file string, startLine int, syntax annot
 	// Java: startLine often points at the first annotation; walk down across
 	// further annotations until the declaration keyword line.
 	if startLine < len(lines) {
-		if t := strings.TrimSpace(lines[startLine]); t != "" && t[0] == sigil {
+		if t := strings.TrimSpace(lines[startLine]); strings.HasPrefix(t, sigil) {
 			for i := startLine; i < len(lines); i++ {
 				tt := strings.TrimSpace(lines[i])
-				if tt == "" || tt[0] == sigil || strings.HasPrefix(tt, "//") || strings.HasPrefix(tt, "*") {
+				if tt == "" || strings.HasPrefix(tt, sigil) || strings.HasPrefix(tt, "//") || strings.HasPrefix(tt, "*") {
 					collect(lines[i])
 					continue
 				}

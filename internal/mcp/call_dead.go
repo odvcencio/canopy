@@ -38,11 +38,19 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 	// Compute call-resolution rate for confidence scoring.
 	resolutionRate := roots.ResolutionRate(graph)
 
-	// Build the language-aware root analyzer.
-	analyzer := roots.NewWithOptions(graph.Root, roots.Options{
+	// Build the language-aware root analyzer, merging an optional
+	// .canopyroots.json discovered at the index root over the built-in profiles.
+	rootsCfg, err := roots.LoadConfig(graph.Root)
+	if err != nil {
+		return nil, err
+	}
+	analyzer, err := roots.NewWithConfig(graph.Root, roots.Options{
 		TreatExportedAsRoots: exportedRoots,
 		ExtraRootAnnotations: extraAnnotations,
-	})
+	}, rootsCfg)
+	if err != nil {
+		return nil, err
+	}
 
 	type deadMatch struct {
 		File       string `json:"file"`

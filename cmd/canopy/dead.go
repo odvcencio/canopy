@@ -24,6 +24,7 @@ func newDeadCmd() *cobra.Command {
 	var limit int
 	var exportedRoots bool
 	var profileAnnotations []string
+	var rootsConfig string
 
 	cmd := &cobra.Command{
 		Use:     "dead [path...]",
@@ -79,10 +80,25 @@ Examples:
 			resolutionRate := roots.ResolutionRate(graph)
 
 			// Build the language-aware root analyzer.
-			analyzer := roots.NewWithOptions(graph.Root, roots.Options{
+			// Load user-defined roots config: an explicit --roots-config path, or
+			// auto-discover .canopyroots.json at the index root. Merges over the
+			// built-in language profiles.
+			var rootsCfg *roots.Config
+			if rootsConfig != "" {
+				rootsCfg, err = roots.LoadConfigFile(rootsConfig)
+			} else {
+				rootsCfg, err = roots.LoadConfig(graph.Root)
+			}
+			if err != nil {
+				return err
+			}
+			analyzer, err := roots.NewWithConfig(graph.Root, roots.Options{
 				TreatExportedAsRoots: exportedRoots,
 				ExtraRootAnnotations: profileAnnotations,
-			})
+			}, rootsCfg)
+			if err != nil {
+				return err
+			}
 
 			matches := make([]deadMatch, 0, 64)
 			scanned := 0
@@ -257,6 +273,7 @@ Examples:
 	cmd.Flags().IntVar(&limit, "limit", 0, "maximum number of results (0 for unlimited)")
 	cmd.Flags().BoolVar(&exportedRoots, "exported-roots", false, "treat public/exported callables as reachability roots (reduces false positives for library code)")
 	cmd.Flags().StringArrayVar(&profileAnnotations, "profile-annotation", nil, "extra root annotations merged into every language profile (e.g. @MyFrameworkHandler)")
+	cmd.Flags().StringVar(&rootsConfig, "roots-config", "", "path to a .canopyroots.json profile config (default: auto-discover at the index root)")
 	return cmd
 }
 

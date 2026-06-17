@@ -10,8 +10,9 @@ import (
 type annotationSyntax string
 
 const (
-	syntaxAt      annotationSyntax = "@" // Java, Python, TypeScript, JavaScript
-	syntaxBracket annotationSyntax = "[" // C#
+	syntaxAt          annotationSyntax = "@"  // Java, Kotlin, Python, TypeScript, JavaScript
+	syntaxBracket     annotationSyntax = "["  // C#
+	syntaxHashBracket annotationSyntax = "#[" // Rust, PHP 8 attributes
 )
 
 // entrypointRule describes what makes a callable a program entrypoint.
@@ -165,6 +166,28 @@ var defaultProfiles = map[string]*Profile{
 				"EventPattern MessagePattern Cron Module",
 		),
 	},
+	".rs": {
+		Extensions: []string{".rs"},
+		Syntax:     syntaxHashBracket,
+		Entrypoint: entrypointRule{
+			Names: []string{"main"},
+			Kinds: []string{"function_definition"},
+		},
+		TestFile: testFileRule{
+			PathContains: []string{"/tests/"},
+		},
+		// #[test], #[tokio::test], #[async_std::test] (head tokens tokio/async_std
+		// also match, but the test check runs first so they classify as test).
+		TestAnnotations: strSet("test tokio::test async_std::test"),
+		// Web-framework route macros (axum/actix/rocket), async-runtime entry
+		// macros, and FFI export markers. Head tokens (tokio, actix_web) match
+		// path attributes like #[tokio::main].
+		MethodRootAnnotations: strSet(
+			"get post put delete patch head options " +
+				"main tokio actix_web async_std rocket " +
+				"no_mangle export_name",
+		),
+	},
 	".cs": {
 		Extensions: []string{".cs"},
 		Syntax:     syntaxBracket,
@@ -191,17 +214,14 @@ func newRegistry(extraAnnotations []string) *profileRegistry {
 	for ext, p := range defaultProfiles {
 		clone := cloneProfile(p)
 		for _, ann := range extraAnnotations {
-			ann = strings.TrimSpace(ann)
-			ann = strings.TrimPrefix(ann, "@")
-			ann = strings.TrimPrefix(ann, "[")
-			ann = strings.TrimSuffix(ann, "]")
-			if ann == "" {
+			name := normalizeAnnName(ann)
+			if name == "" {
 				continue
 			}
 			if clone.MethodRootAnnotations == nil {
 				clone.MethodRootAnnotations = map[string]bool{}
 			}
-			clone.MethodRootAnnotations[ann] = true
+			clone.MethodRootAnnotations[name] = true
 		}
 		reg.byExt[ext] = clone
 		for _, altExt := range clone.Extensions {

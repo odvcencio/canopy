@@ -562,3 +562,90 @@ func TestExportedRootsOption(t *testing.T) {
 		t.Errorf("expected reason=exported, got %q", reason)
 	}
 }
+
+// TestRustAttributes tests the Rust profile: #[...] attributes are read by
+// source-peek (canopy does not fold them into the signature).
+func TestRustAttributes(t *testing.T) {
+	dir := t.TempDir()
+	src := strings.Join([]string{
+		"#[tokio::main]",     // 1
+		"async fn main() {}", // 2
+		"",                   // 3
+		"#[get(\"/x\")]",     // 4
+		"async fn list() {}", // 5
+		"",                   // 6
+		"fn orphan() {}",     // 7
+		"",                   // 8
+		"#[test]",            // 9
+		"fn it_works() {}",   // 10
+	}, "\n")
+	writeSrc(t, dir, "main.rs", src)
+	a := roots.New(dir)
+
+	mainDef := def("main.rs", "function_definition", "main", "async fn main()", "", 2, 2)
+	listDef := def("main.rs", "function_definition", "list", "async fn list()", "", 5, 5)
+	orphan := def("main.rs", "function_definition", "orphan", "fn orphan()", "", 7, 7)
+	testDef := def("main.rs", "function_definition", "it_works", "fn it_works()", "", 10, 10)
+	defs := []xref.Definition{mainDef, listDef, orphan, testDef}
+
+	if ok, _ := a.IsRoot(mainDef, defs); !ok {
+		t.Errorf("expected fn main to be an entrypoint root")
+	}
+	if ok, r := a.IsRoot(listDef, defs); !ok || !strings.HasPrefix(r, "annotation:") {
+		t.Errorf("expected #[get] route to be root, got ok=%v reason=%q", ok, r)
+	}
+	if ok, r := a.IsRoot(testDef, defs); !ok || r != "test" {
+		t.Errorf("expected #[test] fn to be test, got ok=%v reason=%q", ok, r)
+	}
+	if ok, _ := a.IsRoot(orphan, defs); ok {
+		t.Errorf("expected unannotated orphan fn to NOT be root")
+	}
+}
+
+// TestConfigMerge tests that a .canopyroots config adds a custom root annotation
+// over the built-in Java profile without dropping built-ins.
+func TestConfigMerge(t *testing.T) {
+	dir := t.TempDir()
+	writeSrc(t, dir, "H.java", strings.Join([]string{
+		"public class H {",            // 1
+		"    @Webhook(\"/x\")",        // 2
+		"    public void onHook() {}", // 3
+		"    public void dead() {}",   // 4
+		"}",                           // 5
+	}, "\n"))
+
+	cfg := &roots.Config{Profiles: map[string]roots.ProfileConfig{
+		".java": {MethodRootAnnotations: []string{"@Webhook"}},
+	}}
+	a, err := roots.NewWithConfig(dir, roots.Options{}, cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig: %v", err)
+	}
+
+	hook := def("H.java", "method_definition", "onHook", "@Webhook(\"/x\")", "", 2, 3)
+	dead := def("H.java", "method_definition", "dead", "public void dead()", "", 4, 4)
+	defs := []xref.Definition{hook, dead}
+
+	if ok, r := a.IsRoot(hook, defs); !ok || !strings.HasPrefix(r, "annotation:") {
+		t.Errorf("expected @Webhook method to be root via config, got ok=%v reason=%q", ok, r)
+	}
+	if ok, _ := a.IsRoot(dead, defs); ok {
+		t.Errorf("expected plain method to NOT be root")
+	}
+
+	// Built-in Spring annotation still active after merge.
+	bean := def("H.java", "method_definition", "make", "@Bean", "", 2, 3)
+	if ok, _ := a.IsRoot(bean, []xref.Definition{bean}); !ok {
+		t.Errorf("expected built-in @Bean to remain a root after config merge")
+	}
+}
+
+// TestConfigInvalidSyntax tests that a bad syntax sigil is a hard error.
+func TestConfigInvalidSyntax(t *testing.T) {
+	cfg := &roots.Config{Profiles: map[string]roots.ProfileConfig{
+		".java": {Syntax: "%%"},
+	}}
+	if _, err := roots.NewWithConfig(t.TempDir(), roots.Options{}, cfg); err == nil {
+		t.Errorf("expected error for invalid syntax sigil")
+	}
+}
