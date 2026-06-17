@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"m31labs.dev/canopy/pkg/roots"
 	"m31labs.dev/canopy/pkg/xref"
 )
 
@@ -18,6 +19,8 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 
 	includeEntrypoints := boolArg(args, "include_entrypoints", false)
 	includeTests := boolArg(args, "include_tests", false)
+	exportedRoots := boolArg(args, "exported_roots", false)
+	extraAnnotations := stringSliceArg(args, "profile_annotations")
 	target := s.stringArgOrDefault(args, "path", s.defaultRoot)
 	cachePath := s.stringArgOrDefault(args, "cache", s.defaultCache)
 
@@ -32,16 +35,26 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 		return nil, err
 	}
 
+	// Compute call-resolution rate for confidence scoring.
+	resolutionRate := roots.ResolutionRate(graph)
+
+	// Build the language-aware root analyzer.
+	analyzer := roots.NewWithOptions(graph.Root, roots.Options{
+		TreatExportedAsRoots: exportedRoots,
+		ExtraRootAnnotations: extraAnnotations,
+	})
+
 	type deadMatch struct {
-		File      string `json:"file"`
-		Package   string `json:"package"`
-		Kind      string `json:"kind"`
-		Name      string `json:"name"`
-		Signature string `json:"signature,omitempty"`
-		StartLine int    `json:"start_line"`
-		EndLine   int    `json:"end_line"`
-		Incoming  int    `json:"incoming"`
-		Outgoing  int    `json:"outgoing"`
+		File       string `json:"file"`
+		Package    string `json:"package"`
+		Kind       string `json:"kind"`
+		Name       string `json:"name"`
+		Signature  string `json:"signature,omitempty"`
+		StartLine  int    `json:"start_line"`
+		EndLine    int    `json:"end_line"`
+		Incoming   int    `json:"incoming"`
+		Outgoing   int    `json:"outgoing"`
+		Confidence string `json:"confidence,omitempty"`
 	}
 
 	matches := make([]deadMatch, 0, 64)
@@ -50,11 +63,23 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 		if !deadKindAllowed(definition, mode) {
 			continue
 		}
-		if !includeEntrypoints && isEntrypointDefinition(definition) {
-			continue
-		}
-		if !includeTests && isTestSourceFile(definition.File) {
-			continue
+
+		isRoot, reason := analyzer.IsRoot(definition, graph.Definitions)
+
+		if isRoot {
+			// Entrypoints: skip unless include_entrypoints is set.
+			if reason == "entrypoint" && !includeEntrypoints {
+				continue
+			}
+			// Tests: skip unless include_tests is set.
+			if reason == "test" && !includeTests {
+				continue
+			}
+			// All other roots (framework callbacks, annotations, etc.) are
+			// always suppressed — they cannot be dead by definition.
+			if reason != "entrypoint" && reason != "test" {
+				continue
+			}
 		}
 
 		scanned++
@@ -62,16 +87,18 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 		if incoming > 0 {
 			continue
 		}
+		conf := roots.DeadConfidence(resolutionRate, definition)
 		matches = append(matches, deadMatch{
-			File:      definition.File,
-			Package:   definition.Package,
-			Kind:      definition.Kind,
-			Name:      definition.Name,
-			Signature: definition.Signature,
-			StartLine: definition.StartLine,
-			EndLine:   definition.EndLine,
-			Incoming:  incoming,
-			Outgoing:  graph.OutgoingCount(definition.ID),
+			File:       definition.File,
+			Package:    definition.Package,
+			Kind:       definition.Kind,
+			Name:       definition.Name,
+			Signature:  definition.Signature,
+			StartLine:  definition.StartLine,
+			EndLine:    definition.EndLine,
+			Incoming:   incoming,
+			Outgoing:   graph.OutgoingCount(definition.ID),
+			Confidence: string(conf),
 		})
 	}
 
@@ -86,9 +113,10 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 	})
 
 	return map[string]any{
-		"kind":    mode,
-		"scanned": scanned,
-		"count":   len(matches),
-		"matches": matches,
+		"kind":            mode,
+		"scanned":         scanned,
+		"count":           len(matches),
+		"resolution_rate": resolutionRate,
+		"matches":         matches,
 	}, nil
 }

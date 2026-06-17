@@ -206,6 +206,8 @@ func deadKindAllowed(definition xref.Definition, mode string) bool {
 	}
 }
 
+// isEntrypointDefinition returns true for Go main/init functions.
+// Used by call_report.go; new dead-code logic should use roots.Analyzer.
 func isEntrypointDefinition(definition xref.Definition) bool {
 	if definition.Kind != "function_definition" {
 		return false
@@ -213,6 +215,8 @@ func isEntrypointDefinition(definition xref.Definition) bool {
 	return definition.Name == "main" || definition.Name == "init"
 }
 
+// isTestSourceFile returns true for Go _test.go files.
+// Used by call_report.go; new dead-code logic should use roots.Analyzer.
 func isTestSourceFile(path string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), "_test.go")
 }

@@ -47,13 +47,14 @@ type structuralGrepMatch struct {
 }
 
 type deadMatch struct {
-	File      string `json:"file"`
-	Package   string `json:"package"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Signature string `json:"signature,omitempty"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	Incoming  int    `json:"incoming"`
-	Outgoing  int    `json:"outgoing"`
+	File       string `json:"file"`
+	Package    string `json:"package"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Signature  string `json:"signature,omitempty"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line"`
+	Incoming   int    `json:"incoming"`
+	Outgoing   int    `json:"outgoing"`
+	Confidence string `json:"confidence,omitempty"`
 }

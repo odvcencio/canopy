@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"m31labs.dev/canopy/pkg/model"
+	"m31labs.dev/canopy/pkg/roots"
 	"m31labs.dev/canopy/pkg/xref"
 )
 
@@ -21,6 +22,8 @@ func newDeadCmd() *cobra.Command {
 	var jsonOutput bool
 	var countOnly bool
 	var limit int
+	var exportedRoots bool
+	var profileAnnotations []string
 
 	cmd := &cobra.Command{
 		Use:     "dead [path...]",
@@ -32,10 +35,15 @@ Multiple paths can be provided to build the cross-reference graph across
 packages, reducing false positives for exported symbols called from other
 packages.
 
+The command uses language-aware reachability-root detection to suppress false
+positives for framework callbacks (Spring controllers, @Bean, @Scheduled),
+JPA repository methods, test functions, and other framework-invoked callables.
+
 Examples:
   gts dead internal/service/
-  gts dead internal/service/ internal/api/    # cross-package analysis`,
-		Args:    cobra.ArbitraryArgs,
+  gts dead internal/service/ internal/api/    # cross-package analysis
+  gts dead /path/to/java-app                  # Java Spring Boot app`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := strings.ToLower(strings.TrimSpace(kind))
 			switch mode {
@@ -67,17 +75,38 @@ Examples:
 				return err
 			}
 
+			// Compute call-resolution rate for confidence scoring.
+			resolutionRate := roots.ResolutionRate(graph)
+
+			// Build the language-aware root analyzer.
+			analyzer := roots.NewWithOptions(graph.Root, roots.Options{
+				TreatExportedAsRoots: exportedRoots,
+				ExtraRootAnnotations: profileAnnotations,
+			})
+
 			matches := make([]deadMatch, 0, 64)
 			scanned := 0
 			for _, definition := range graph.Definitions {
 				if !deadKindAllowed(definition, mode) {
 					continue
 				}
-				if !includeEntrypoints && isEntrypointDefinition(definition) {
-					continue
-				}
-				if !includeTests && isTestSourceFile(definition.File) {
-					continue
+
+				isRoot, reason := analyzer.IsRoot(definition, graph.Definitions)
+
+				if isRoot {
+					// Entrypoints: skip unless --include-entrypoints is set.
+					if reason == "entrypoint" && !includeEntrypoints {
+						continue
+					}
+					// Tests: skip unless --include-tests is set.
+					if reason == "test" && !includeTests {
+						continue
+					}
+					// All other roots (framework callbacks, annotations, etc.) are
+					// always suppressed — they cannot be dead by definition.
+					if reason != "entrypoint" && reason != "test" {
+						continue
+					}
 				}
 
 				scanned++
@@ -85,16 +114,18 @@ Examples:
 				if incoming > 0 {
 					continue
 				}
+				conf := roots.DeadConfidence(resolutionRate, definition)
 				matches = append(matches, deadMatch{
-					File:      definition.File,
-					Package:   definition.Package,
-					Kind:      definition.Kind,
-					Name:      definition.Name,
-					Signature: definition.Signature,
-					StartLine: definition.StartLine,
-					EndLine:   definition.EndLine,
-					Incoming:  incoming,
-					Outgoing:  graph.OutgoingCount(definition.ID),
+					File:       definition.File,
+					Package:    definition.Package,
+					Kind:       definition.Kind,
+					Name:       definition.Name,
+					Signature:  definition.Signature,
+					StartLine:  definition.StartLine,
+					EndLine:    definition.EndLine,
+					Incoming:   incoming,
+					Outgoing:   graph.OutgoingCount(definition.ID),
+					Confidence: string(conf),
 				})
 			}
 
@@ -197,7 +228,7 @@ Examples:
 					name = match.Name
 				}
 				fmt.Printf(
-					"%s:%d:%d %s %s incoming=%d outgoing=%d\n",
+					"%s:%d:%d %s %s incoming=%d outgoing=%d confidence=%s\n",
 					match.File,
 					match.StartLine,
 					match.EndLine,
@@ -205,6 +236,7 @@ Examples:
 					name,
 					match.Incoming,
 					match.Outgoing,
+					match.Confidence,
 				)
 			}
 			fmt.Printf("dead: kind=%s scanned=%d matches=%d\n", mode, scanned, len(matches))
@@ -218,11 +250,13 @@ Examples:
 	cmd.Flags().StringVar(&cachePath, "cache", "", "load index from cache instead of parsing")
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "skip auto-discovery of cached index")
 	cmd.Flags().StringVar(&kind, "kind", "callable", "filter dead definitions by callable|function|method")
-	cmd.Flags().BoolVar(&includeEntrypoints, "include-entrypoints", false, "include main/init functions in dead code results")
-	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "include _test files in dead code results")
+	cmd.Flags().BoolVar(&includeEntrypoints, "include-entrypoints", false, "include entrypoint functions (main/init) in dead code results")
+	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "include test files and test functions in dead code results")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().BoolVar(&countOnly, "count", false, "print the number of dead definitions")
 	cmd.Flags().IntVar(&limit, "limit", 0, "maximum number of results (0 for unlimited)")
+	cmd.Flags().BoolVar(&exportedRoots, "exported-roots", false, "treat public/exported callables as reachability roots (reduces false positives for library code)")
+	cmd.Flags().StringArrayVar(&profileAnnotations, "profile-annotation", nil, "extra root annotations merged into every language profile (e.g. @MyFrameworkHandler)")
 	return cmd
 }
 
@@ -245,15 +279,4 @@ func deadKindAllowed(definition xref.Definition, mode string) bool {
 	default:
 		return false
 	}
-}
-
-func isEntrypointDefinition(definition xref.Definition) bool {
-	if definition.Kind != "function_definition" {
-		return false
-	}
-	return definition.Name == "main" || definition.Name == "init"
-}
-
-func isTestSourceFile(path string) bool {
-	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), "_test.go")
 }
