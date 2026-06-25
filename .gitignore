@@ -4,6 +4,8 @@
 /canopy
 /canopyls
 /gtsls
+/bin/
+.ferrous-wheel-build/
 .claude/
 docs/blog-outlines/
 docs/plans/

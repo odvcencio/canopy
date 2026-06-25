@@ -1,0 +1,58 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+)
+
+// build.fw builds the canopy CLI with a curated set of *programming-language*
+// tree-sitter grammars instead of gotreesitter's full ~206-grammar registry
+// (most of which are config/markup/data formats canopy never needs).
+//
+//	ferrous-wheel run scripts/build.fw
+//
+// Escape hatch: add or remove a language in `langs` below. Each name maps to a
+// gotreesitter grammar_subset_<name> build tag; the master `grammar_subset` tag
+// flips the registry from "all" to "only the selected".
+func main() {
+	let langs = []string{
+		"go", "python", "javascript", "typescript", "tsx", "java", "c", "cpp",
+		"c_sharp", "rust", "ruby", "php", "swift", "kotlin", "scala", "dart",
+		"lua", "r", "perl", "bash", "powershell", "objc", "groovy", "julia",
+		"matlab", "haskell", "elixir", "erlang", "clojure", "ocaml", "fsharp",
+		"scheme", "racket", "commonlisp", "elisp", "fortran", "cobol", "pascal",
+		"ada", "zig", "nim", "crystal", "d", "gdscript", "solidity", "glsl",
+		"hlsl", "wgsl", "cuda", "verilog",
+	}
+
+	let mut tags = []string{"grammar_subset"}
+	for _, l in langs {
+		tags = append(tags, "grammar_subset_"+l)
+	}
+
+	// `ferrous-wheel run` executes from <project>/.ferrous-wheel-build/fwrun-*/,
+	// so derive the project root from the cwd to run `go build` in the right place.
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Println(f"cannot determine cwd: {err}")
+		os.Exit(1)
+	}
+	let mut root = cwd
+	let idx = strings.Index(cwd, "/.ferrous-wheel-build/")
+	if idx >= 0 {
+		root = cwd[0:idx]
+	}
+
+	fmt.Println(f"building canopy with {len(langs)} programming-language grammars (grammar_subset)...")
+	let cmd = exec.Command("go", "build", "-tags", strings.Join(tags, " "), "-o", "bin/canopy", "./cmd/canopy")
+	cmd.Dir = root
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Println(f"build failed: {err}")
+		os.Exit(1)
+	}
+	fmt.Println("built bin/canopy")
+}
