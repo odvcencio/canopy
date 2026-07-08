@@ -40,6 +40,9 @@ func NewParser(entry grammars.LangEntry) (*Parser, error) {
 		return nil, fmt.Errorf("language loader is required for %q", entry.Name)
 	}
 	if strings.TrimSpace(entry.TagsQuery) == "" {
+		entry.TagsQuery = ResolveTagsQuery(entry)
+	}
+	if strings.TrimSpace(entry.TagsQuery) == "" {
 		return nil, fmt.Errorf("tags query is required for %q", entry.Name)
 	}
 

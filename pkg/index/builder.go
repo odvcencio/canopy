@@ -107,7 +107,7 @@ func newLazyParser(entry grammars.LangEntry) *lazyParser {
 func (lp *lazyParser) init() {
 	// Infer the tags query on demand (loads the grammar for this one language).
 	entry := lp.entry
-	entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+	entry.TagsQuery = treesitter.ResolveTagsQuery(entry)
 	if strings.TrimSpace(entry.TagsQuery) == "" {
 		entry.TagsQuery = fallbackTagsQueries[entry.Name]
 	}

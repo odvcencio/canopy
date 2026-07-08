@@ -11,6 +11,7 @@ import (
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
+	treesitter "m31labs.dev/canopy/pkg/lang/treesitter"
 	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/query"
 )
@@ -129,7 +130,7 @@ func planRenameEdits(idx *model.Index, targets renameTargets, newName string, op
 		if !ok {
 			continue
 		}
-		entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+		entry.TagsQuery = treesitter.ResolveTagsQuery(entry)
 		if strings.TrimSpace(entry.TagsQuery) == "" {
 			continue
 		}
