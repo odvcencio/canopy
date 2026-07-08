@@ -7,8 +7,7 @@ import (
 	"github.com/odvcencio/gotreesitter"
 )
 
-// LOCMetrics holds line-of-code counts for a code region, following the
-// rust-code-analysis definitions.
+// LOCMetrics holds line-of-code counts for a code region.
 //
 //   - SLOC:  total physical lines in the region (code, comments, and blanks).
 //   - PLOC:  physical lines containing at least one code token.
@@ -52,9 +51,9 @@ type MaintainabilityMetrics struct {
 }
 
 // halsteadFromCounts computes Halstead measures from the distinct/total
-// operator and operand counts. It mirrors rust-code-analysis: volume is 0 when
-// the vocabulary is <= 1, and difficulty (hence effort/time/bugs) is 0 when
-// there are no operands, so degenerate regions never yield NaN or Inf.
+// operator and operand counts. Volume is 0 when the vocabulary is <= 1, and
+// difficulty (hence effort/time/bugs) is 0 when there are no operands, so
+// degenerate regions never yield NaN or Inf.
 func halsteadFromCounts(distinctOperators, distinctOperands, totalOperators, totalOperands int) HalsteadMetrics {
 	h := HalsteadMetrics{
 		DistinctOperators: distinctOperators,
