@@ -3,6 +3,7 @@ package complexity
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,6 +32,10 @@ type FunctionMetrics struct {
 	FanOut     int    `json:"fan_out"`
 	Returns    int    `json:"returns"`
 	BoolDepth  int    `json:"bool_depth"`
+
+	LOC             LOCMetrics             `json:"loc"`
+	Halstead        HalsteadMetrics        `json:"halstead"`
+	Maintainability MaintainabilityMetrics `json:"maintainability"`
 }
 
 // Summary holds aggregate statistics across all analyzed functions.
@@ -44,6 +49,10 @@ type Summary struct {
 	AvgLines      float64 `json:"avg_lines"`
 	MaxLines      int     `json:"max_lines"`
 	AvgMaxNesting float64 `json:"avg_max_nesting"`
+
+	AvgVolume          float64 `json:"avg_volume"`
+	AvgMaintainability float64 `json:"avg_maintainability"`
+	MinMaintainability float64 `json:"min_maintainability"`
 }
 
 // Report contains the full complexity analysis result.
@@ -137,7 +146,10 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 			}
 
 			cyc, cog, maxNest, rets, boolDep := computeComplexity(rootNode, lang, body)
+			loc, hal := analyzeSourceMetrics(rootNode, lang, body)
 			tree.Release()
+
+			mi := maintainability(hal.Volume, cyc, loc.SLOC, commentPercent(loc))
 
 			metrics := FunctionMetrics{
 				File:       file.Path,
@@ -153,6 +165,10 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 				Parameters: countParameters(sym.Signature),
 				Returns:    rets,
 				BoolDepth:  boolDep,
+
+				LOC:             loc,
+				Halstead:        hal,
+				Maintainability: mi,
 			}
 
 			if opts.MinCyclomatic > 0 && metrics.Cyclomatic < opts.MinCyclomatic {
@@ -384,6 +400,21 @@ func computeComplexity(root *gotreesitter.Node, lang *gotreesitter.Language, sou
 // with stable tiebreak by file + startLine.
 func sortFunctions(functions []FunctionMetrics, sortField string) {
 	sort.SliceStable(functions, func(i, j int) bool {
+		// Float-valued fields are sorted separately: volume descending (most
+		// voluminous first), maintainability ascending (worst/lowest first).
+		switch sortField {
+		case "volume":
+			if fi, fj := functions[i].Halstead.Volume, functions[j].Halstead.Volume; fi != fj {
+				return fi > fj
+			}
+			return tiebreak(functions, i, j)
+		case "mi":
+			if fi, fj := functions[i].Maintainability.Original, functions[j].Maintainability.Original; fi != fj {
+				return fi < fj
+			}
+			return tiebreak(functions, i, j)
+		}
+
 		var vi, vj int
 		switch sortField {
 		case "cognitive":
@@ -398,11 +429,16 @@ func sortFunctions(functions []FunctionMetrics, sortField string) {
 		if vi != vj {
 			return vi > vj // descending
 		}
-		if functions[i].File != functions[j].File {
-			return functions[i].File < functions[j].File
-		}
-		return functions[i].StartLine < functions[j].StartLine
+		return tiebreak(functions, i, j)
 	})
+}
+
+// tiebreak orders equal-metric functions stably by file then start line.
+func tiebreak(functions []FunctionMetrics, i, j int) bool {
+	if functions[i].File != functions[j].File {
+		return functions[i].File < functions[j].File
+	}
+	return functions[i].StartLine < functions[j].StartLine
 }
 
 // computeSummary calculates aggregate statistics for the function metrics.
@@ -414,12 +450,19 @@ func computeSummary(functions []FunctionMetrics) Summary {
 
 	var sumCyc, sumCog, sumLines, sumNesting int
 	maxCyc, maxCog, maxLines := 0, 0, 0
+	var sumVolume, sumMI float64
+	minMI := math.Inf(1)
 
 	for _, fn := range functions {
 		sumCyc += fn.Cyclomatic
 		sumCog += fn.Cognitive
 		sumLines += fn.Lines
 		sumNesting += fn.MaxNesting
+		sumVolume += fn.Halstead.Volume
+		sumMI += fn.Maintainability.Original
+		if fn.Maintainability.Original < minMI {
+			minMI = fn.Maintainability.Original
+		}
 
 		if fn.Cyclomatic > maxCyc {
 			maxCyc = fn.Cyclomatic
@@ -453,5 +496,9 @@ func computeSummary(functions []FunctionMetrics) Summary {
 		AvgLines:      float64(sumLines) / float64(n),
 		MaxLines:      maxLines,
 		AvgMaxNesting: float64(sumNesting) / float64(n),
+
+		AvgVolume:          sumVolume / float64(n),
+		AvgMaintainability: sumMI / float64(n),
+		MinMaintainability: minMI,
 	}
 }

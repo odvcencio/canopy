@@ -29,6 +29,7 @@ func newComplexityCmd() *cobra.Command {
 	var kind string
 	var noXref bool
 	var forceXref bool
+	var showMetrics bool
 
 	cmd := &cobra.Command{
 		Use:     "complexity [path]",
@@ -43,9 +44,9 @@ func newComplexityCmd() *cobra.Command {
 
 			sortField = strings.ToLower(strings.TrimSpace(sortField))
 			switch sortField {
-			case "", "cyclomatic", "cognitive", "lines", "nesting":
+			case "", "cyclomatic", "cognitive", "lines", "nesting", "volume", "mi":
 			default:
-				return fmt.Errorf("unsupported --sort %q (expected cyclomatic|cognitive|lines|nesting)", sortField)
+				return fmt.Errorf("unsupported --sort %q (expected cyclomatic|cognitive|lines|nesting|volume|mi)", sortField)
 			}
 
 			// Grammar loading can use 200-400 MB; set a soft memory limit so
@@ -129,7 +130,7 @@ func newComplexityCmd() *cobra.Command {
 			for _, fn := range report.Functions {
 				label := symbolLabel(fn.Name, "")
 				fmt.Printf(
-					"%s:%d:%d %s %s cyc=%d cog=%d lines=%d nesting=%d params=%d fan_in=%d fan_out=%d\n",
+					"%s:%d:%d %s %s cyc=%d cog=%d lines=%d nesting=%d params=%d fan_in=%d fan_out=%d",
 					fn.File,
 					fn.StartLine,
 					fn.EndLine,
@@ -143,10 +144,23 @@ func newComplexityCmd() *cobra.Command {
 					fn.FanIn,
 					fn.FanOut,
 				)
+				if showMetrics {
+					fmt.Printf(
+						" mi=%.0f vol=%.0f sloc=%d ploc=%d lloc=%d cloc=%d blank=%d",
+						fn.Maintainability.Original,
+						fn.Halstead.Volume,
+						fn.LOC.SLOC,
+						fn.LOC.PLOC,
+						fn.LOC.LLOC,
+						fn.LOC.CLOC,
+						fn.LOC.Blank,
+					)
+				}
+				fmt.Println()
 			}
 
 			fmt.Printf(
-				"complexity: count=%d avg_cyc=%.1f max_cyc=%d p90_cyc=%d avg_cog=%.1f max_cog=%d avg_lines=%.1f max_lines=%d avg_nesting=%.1f\n",
+				"complexity: count=%d avg_cyc=%.1f max_cyc=%d p90_cyc=%d avg_cog=%.1f max_cog=%d avg_lines=%.1f max_lines=%d avg_nesting=%.1f",
 				report.Summary.Count,
 				report.Summary.AvgCyclomatic,
 				report.Summary.MaxCyclomatic,
@@ -157,6 +171,15 @@ func newComplexityCmd() *cobra.Command {
 				report.Summary.MaxLines,
 				report.Summary.AvgMaxNesting,
 			)
+			if showMetrics {
+				fmt.Printf(
+					" avg_vol=%.0f avg_mi=%.0f min_mi=%.0f",
+					report.Summary.AvgVolume,
+					report.Summary.AvgMaintainability,
+					report.Summary.MinMaintainability,
+				)
+			}
+			fmt.Println()
 			return nil
 		},
 	}
@@ -166,10 +189,11 @@ func newComplexityCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().BoolVar(&countOnly, "count", false, "print only the number of functions analyzed")
 	cmd.Flags().IntVar(&minCyclomatic, "min-cyclomatic", 0, "minimum cyclomatic complexity to include")
-	cmd.Flags().StringVar(&sortField, "sort", "cyclomatic", "sort by cyclomatic|cognitive|lines|nesting")
+	cmd.Flags().StringVar(&sortField, "sort", "cyclomatic", "sort by cyclomatic|cognitive|lines|nesting|volume|mi")
 	cmd.Flags().IntVar(&top, "top", 0, "limit output to top N functions")
 	cmd.Flags().StringVar(&kind, "kind", "", "filter by symbol kind (function|method)")
 	cmd.Flags().BoolVar(&noXref, "no-xref", false, "skip xref enrichment (fan-in/fan-out) to reduce memory usage")
 	cmd.Flags().BoolVar(&forceXref, "xref", false, "force xref enrichment even for large indexes")
+	cmd.Flags().BoolVar(&showMetrics, "metrics", false, "show Halstead, Maintainability Index, and LOC breakdown columns")
 	return cmd
 }
