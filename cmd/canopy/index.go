@@ -51,6 +51,7 @@ type indexBuildOpts struct {
 	poll               bool
 	reportChanges      bool
 	onceIfChanged      bool
+	retryQuarantined   bool
 	interval           time.Duration
 	ignorePatterns     []string
 }
@@ -102,6 +103,12 @@ func runIndexBuild(args []string, opts indexBuildOpts) error {
 		return err
 	}
 
+	if opts.retryQuarantined {
+		if err := index.ClearQuarantine(indexRoot); err != nil {
+			return err
+		}
+	}
+
 	buildOnce := func(base *model.Index, observer func(index.BuildEvent)) (*model.Index, index.BuildStats, error) {
 		return builder.BuildPathIncrementalWithOptions(ctx, target, base, index.BuildOptions{
 			Observer: observer,
@@ -110,7 +117,10 @@ func runIndexBuild(args []string, opts indexBuildOpts) error {
 
 	buildBase := (*model.Index)(nil)
 	if opts.incremental {
-		buildBase = previous
+		// Gate here as well as inside the builder: the checkpoint writer is
+		// seeded with this baseline, and a mid-build kill would otherwise
+		// persist old-builder entries under the current builder_version stamp.
+		buildBase = index.GatePreviousIndex(previous)
 	}
 
 	checkpointWriter := newIndexCheckpointWriter(opts.outPath, indexRoot, buildBase)
@@ -325,6 +335,7 @@ func newIndexBuildCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.onceIfChanged, "once-if-changed", false, "exit with code 2 when structural changes are detected")
 	cmd.Flags().DurationVar(&opts.interval, "interval", 2*time.Second, "poll interval for watch mode")
 	cmd.Flags().StringArrayVar(&opts.ignorePatterns, "ignore", nil, "additional ignore patterns (repeatable, merged with .graftignore and .canopyignore)")
+	cmd.Flags().BoolVar(&opts.retryQuarantined, "retry-quarantined", false, "retry files quarantined after a previous build crashed while parsing them")
 	return cmd
 }
 

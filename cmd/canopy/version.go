@@ -1,3 +1,5 @@
 package main
 
-const version = "0.16.2"
+import "m31labs.dev/canopy/pkg/buildinfo"
+
+const version = buildinfo.Version

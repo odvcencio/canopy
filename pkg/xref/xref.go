@@ -616,6 +616,15 @@ func resolveCalleeIdx(
 ) calleeResolution {
 	if candidates := uniqueDefIndices(definitions, callableByFileName[keyFileName(filePath, name)]); len(candidates) > 0 {
 		if len(candidates) == 1 {
+			// A single same-file candidate is only an exclusive binding when no
+			// other same-name methods exist elsewhere. Without receiver type
+			// information, `x.name()` in this file may dispatch to a method
+			// defined in another file; binding greedily here starves those
+			// definitions of all incoming edges (they then surface as false
+			// dead-code candidates). Treat that case as polymorphic dispatch.
+			if global := uniqueDefIndices(definitions, callableByName[name]); len(global) > 1 && allMethods(definitions, global) {
+				return calleeResolution{candidates: global, polyScope: "file", ok: true}
+			}
 			return calleeResolution{idx: candidates[0], resolution: "file", ok: true}
 		}
 		if allMethods(definitions, candidates) {

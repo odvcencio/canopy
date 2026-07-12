@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"m31labs.dev/canopy/pkg/deadscan"
 	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/roots"
 	"m31labs.dev/canopy/pkg/xref"
@@ -23,6 +24,7 @@ func newDeadCmd() *cobra.Command {
 	var countOnly bool
 	var limit int
 	var exportedRoots bool
+	var includeWeak bool
 	var profileAnnotations []string
 	var rootsConfig string
 
@@ -174,6 +176,34 @@ Examples:
 				matches = genFiltered
 			}
 
+			// The call graph misses value references (callbacks, dispatch
+			// tables). A source-text mention outside the definition means the
+			// candidate is not provably dead: downgrade it, and drop it unless
+			// --include-weak asks for the full list.
+			candidates := make([]deadscan.Candidate, len(matches))
+			for i, match := range matches {
+				candidates[i] = deadscan.Candidate{
+					File:      match.File,
+					Name:      match.Name,
+					StartLine: match.StartLine,
+					EndLine:   match.EndLine,
+				}
+			}
+			mentionCounts := deadscan.MentionCounts(graph.Root, idx.Files, candidates)
+			weakKept := matches[:0]
+			for i := range matches {
+				if mentionCounts[i] == 0 {
+					weakKept = append(weakKept, matches[i])
+					continue
+				}
+				if includeWeak {
+					matches[i].Confidence = string(roots.ConfidenceLow)
+					matches[i].ValueMentions = mentionCounts[i]
+					weakKept = append(weakKept, matches[i])
+				}
+			}
+			matches = weakKept
+
 			sort.Slice(matches, func(i, j int) bool {
 				if matches[i].File == matches[j].File {
 					if matches[i].StartLine == matches[j].StartLine {
@@ -272,6 +302,7 @@ Examples:
 	cmd.Flags().BoolVar(&countOnly, "count", false, "print the number of dead definitions")
 	cmd.Flags().IntVar(&limit, "limit", 0, "maximum number of results (0 for unlimited)")
 	cmd.Flags().BoolVar(&exportedRoots, "exported-roots", false, "treat public/exported callables as reachability roots (reduces false positives for library code)")
+	cmd.Flags().BoolVar(&includeWeak, "include-weak", false, "include candidates whose name is mentioned outside call position (value references); reported with low confidence")
 	cmd.Flags().StringArrayVar(&profileAnnotations, "profile-annotation", nil, "extra root annotations merged into every language profile (e.g. @MyFrameworkHandler)")
 	cmd.Flags().StringVar(&rootsConfig, "roots-config", "", "path to a .canopyroots.json profile config (default: auto-discover at the index root)")
 	return cmd

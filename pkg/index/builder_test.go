@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"m31labs.dev/canopy/pkg/buildinfo"
 	"m31labs.dev/canopy/pkg/ignore"
 )
 
@@ -73,7 +74,7 @@ func TestBuildWalkPolicy_UsesShouldSkipDirForDirectoryPruning(t *testing.T) {
 		}),
 	}
 
-	policy := builder.buildWalkPolicy(root, nil)
+	policy := builder.buildWalkPolicy(root, nil, nil)
 	if policy.ShouldSkipDir == nil {
 		t.Fatal("expected ShouldSkipDir hook")
 	}
@@ -379,5 +380,35 @@ func Func%03d() int { return %d }
 			b.Fatalf("expected 300 files, got %d", next.FileCount())
 		}
 		base = next
+	}
+}
+
+func TestBuildPathIncremental_RefusesReuseFromDifferentBuilderVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.go"), []byte("package sample\n\nfunc A() {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	builder := NewBuilder()
+	first, _, err := builder.BuildPathIncremental(context.Background(), tmpDir, nil)
+	if err != nil {
+		t.Fatalf("BuildPathIncremental first returned error: %v", err)
+	}
+	if first.BuilderVersion != buildinfo.Version {
+		t.Fatalf("BuilderVersion = %q, want %q", first.BuilderVersion, buildinfo.Version)
+	}
+
+	// Same content, but the cache claims another builder wrote it — its
+	// symbols may be shaped by different extraction logic, so nothing reuses.
+	first.BuilderVersion = "0.0.0-poisoned"
+	second, secondStats, err := builder.BuildPathIncremental(context.Background(), tmpDir, first)
+	if err != nil {
+		t.Fatalf("BuildPathIncremental second returned error: %v", err)
+	}
+	if secondStats.ReusedFiles != 0 || secondStats.ParsedFiles != 1 {
+		t.Fatalf("expected full re-parse, got stats %+v", secondStats)
+	}
+	if second.BuilderVersion != buildinfo.Version {
+		t.Fatalf("rebuilt BuilderVersion = %q, want %q", second.BuilderVersion, buildinfo.Version)
 	}
 }

@@ -1246,3 +1246,92 @@ func TestBuildAmbiguousFunctionsNotPolymorphic(t *testing.T) {
 		t.Fatalf("expected reason ambiguous_global, got %q", graph.Unresolved[0].Reason)
 	}
 }
+
+// A method call whose name has one same-file definition but additional
+// same-name method definitions in other files must fan out to all of them.
+// Exclusive same-file binding starves the cross-file methods of incoming
+// edges and turns them into false dead-code candidates.
+func TestBuildSameFileMethodDoesNotStarveCrossFileMethod(t *testing.T) {
+	idx := &model.Index{
+		Root: "/tmp/repo",
+		Files: []model.FileSummary{
+			{
+				Path: "reduce.go",
+				Symbols: []model.Symbol{
+					{
+						File:      "reduce.go",
+						Kind:      "method_definition",
+						Name:      "record",
+						Receiver:  "*Parser",
+						StartLine: 1,
+						EndLine:   3,
+					},
+					{
+						File:      "reduce.go",
+						Kind:      "method_definition",
+						Name:      "caller",
+						Receiver:  "*Parser",
+						StartLine: 5,
+						EndLine:   9,
+					},
+				},
+				References: []model.Reference{
+					{
+						File:      "reduce.go",
+						Kind:      "reference.call",
+						Name:      "record",
+						StartLine: 7,
+						EndLine:   7,
+					},
+				},
+			},
+			{
+				Path: "arena.go",
+				Symbols: []model.Symbol{
+					{
+						File:      "arena.go",
+						Kind:      "method_definition",
+						Name:      "record",
+						Receiver:  "*nodeArena",
+						StartLine: 1,
+						EndLine:   3,
+					},
+				},
+			},
+		},
+	}
+
+	graph, err := Build(idx)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var arenaRecordID, reduceRecordID string
+	for _, def := range graph.Definitions {
+		if def.Name != "record" {
+			continue
+		}
+		switch def.File {
+		case "arena.go":
+			arenaRecordID = def.ID
+		case "reduce.go":
+			reduceRecordID = def.ID
+		}
+	}
+	if arenaRecordID == "" || reduceRecordID == "" {
+		t.Fatalf("missing record definitions in graph")
+	}
+
+	if got := graph.IncomingCount(arenaRecordID); got != 1 {
+		t.Errorf("arena.go record incoming = %d, want 1 (poly fan-out edge)", got)
+	}
+	if got := graph.IncomingCount(reduceRecordID); got != 1 {
+		t.Errorf("reduce.go record incoming = %d, want 1", got)
+	}
+
+	for _, edge := range graph.IncomingEdges(arenaRecordID) {
+		if edge.Resolution != "poly_file" {
+			t.Errorf("edge resolution = %q, want poly_file", edge.Resolution)
+		}
+	}
+}

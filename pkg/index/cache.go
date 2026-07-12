@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"m31labs.dev/canopy/pkg/buildinfo"
 	"m31labs.dev/canopy/pkg/model"
 )
 
@@ -79,6 +80,10 @@ func loadIndex(path string, lenient bool) (*model.Index, error) {
 		}
 		fmt.Fprintf(os.Stderr, "index: cache schema %q != expected %q, using anyway (rebuild with 'canopy index build' for full features)\n",
 			idx.Version, schemaVersion)
+	}
+	if idx.BuilderVersion != buildinfo.Version {
+		fmt.Fprintf(os.Stderr, "index: cache built by canopy %q, current is %q — symbols may be stale; rebuild with 'canopy index build'\n",
+			idx.BuilderVersion, buildinfo.Version)
 	}
 	return &idx, nil
 }

@@ -241,6 +241,7 @@ func graphTools() []Tool {
 					"include_entrypoints": {Type: "boolean"},
 					"include_tests":       {Type: "boolean"},
 					"include_generated":   {Type: "boolean", Description: "include generated files (default: false)"},
+					"include_weak":        {Type: "boolean", Description: "include candidates with value references (callbacks, dispatch tables); reported with low confidence (default: false)"},
 				},
 			}.ToMap(),
 		},

@@ -4,6 +4,42 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-07-11
+
+Index-trust and dead-code-accuracy release. A field investigation on the
+gotreesitter repo found three ways canopy could report wrong results with
+full confidence; this release closes all three and upgrades the parser.
+
+### Added
+- Indexes record the canopy version that built them (`builder_version`), and
+  incremental builds refuse to reuse per-file entries from a different
+  builder version. A cache poisoned by an older extractor (observed:
+  duplicate definitions named after their return type, which then surfaced
+  as ~1,800 false dead-code candidates) can no longer survive rebuilds.
+- Crash quarantine for killer files: files at or above 64 KiB are journaled
+  to `.canopy/inflight.json` while parsing. When a build is killed mid-parse
+  (runaway parser memory, OOM, hard timeout), the next build quarantines the
+  file, records it in the index's new `skipped` list, and completes instead
+  of dying at the same file forever. Quarantine lifts automatically when the
+  file changes, or manually via `canopy index build --retry-quarantined`.
+- `canopy analyze dead --include-weak` (MCP: `include_weak`) surfaces
+  candidates whose only references are value mentions, at low confidence.
+
+### Changed
+- Upgraded `gotreesitter` from `v0.22.3` to `v0.26.1`: 206/206 exhaustive
+  structural parity, GSS hash-collision fail-closed verification, registry
+  lifecycle race fixes, 28% smaller nodes, and final-tree arena compaction.
+- Dead-code analysis now cross-checks zero-incoming candidates against
+  source text: a callable referenced as a value (callback argument, dispatch
+  table entry) is no longer reported as dead by default.
+
+### Fixed
+- Method calls no longer bind exclusively to a same-file method when other
+  same-name methods exist in the package. The call graph fans out to all
+  candidate methods (polymorphic dispatch), so cross-file methods such as a
+  second receiver's implementation stop surfacing as false dead-code
+  candidates with zero incoming edges.
+
 ## [0.16.2] - 2026-05-24
 
 Patch release updating Canopy to the latest gotreesitter runtime.

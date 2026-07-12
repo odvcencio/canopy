@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 
+	"m31labs.dev/canopy/pkg/buildinfo"
 	"m31labs.dev/canopy/pkg/lsp"
 	"m31labs.dev/canopy/pkg/socket"
 )
 
-var version = "0.16.2"
+var version = buildinfo.Version
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {

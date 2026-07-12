@@ -16,6 +16,7 @@ import (
 	"github.com/odvcencio/gotreesitter"
 	"github.com/odvcencio/gotreesitter/grammars"
 
+	"m31labs.dev/canopy/pkg/buildinfo"
 	"m31labs.dev/canopy/pkg/generated"
 	"m31labs.dev/canopy/pkg/ignore"
 	"m31labs.dev/canopy/pkg/lang"
@@ -36,9 +37,10 @@ type Builder struct {
 func (b *Builder) SetConfigHashes(h map[string]string) { b.configHashes = h }
 
 type BuildStats struct {
-	CandidateFiles int `json:"candidate_files"`
-	ParsedFiles    int `json:"parsed_files"`
-	ReusedFiles    int `json:"reused_files"`
+	CandidateFiles     int `json:"candidate_files"`
+	ParsedFiles        int `json:"parsed_files"`
+	ReusedFiles        int `json:"reused_files"`
+	QuarantinedSkipped int `json:"quarantined_skipped,omitempty"`
 }
 
 func NewBuilder() *Builder {
@@ -189,6 +191,7 @@ func (b *Builder) BuildPathIncrementalWithOptions(ctx context.Context, path stri
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	previous = gatePreviousIndex(previous)
 
 	target, info, err := resolveBuildTarget(path)
 	if err != nil {
@@ -226,9 +229,11 @@ func (b *Builder) buildDirectoryWithOptions(ctx context.Context, root string, pr
 	filesByPath := make(map[string]model.FileSummary, len(previousByPath))
 	errorsByPath := map[string]model.ParseError{}
 
+	guard := newBuildGuard(root)
 	b.collectReusableFiles(root, previousByPath, filesByPath, &stats, opts)
-	policy := b.buildWalkPolicy(root, previousByPath)
-	b.consumeWalkResults(ctx, root, policy, filesByPath, errorsByPath, &stats, opts)
+	policy := b.buildWalkPolicy(root, previousByPath, guard)
+	b.consumeWalkResults(ctx, root, policy, guard, filesByPath, errorsByPath, &stats, opts)
+	guard.finish()
 
 	if langCount := countDistinctLanguages(filesByPath); langCount > 20 {
 		fmt.Fprintf(os.Stderr, "warning: %d distinct languages detected — this may cause high memory usage\n", langCount)
@@ -236,13 +241,21 @@ func (b *Builder) buildDirectoryWithOptions(ctx context.Context, root string, pr
 
 	index := snapshotIndex(root, filesByPath, errorsByPath)
 	index.ConfigHashes = b.configHashes
+	if skipped := guard.skippedFiles(); len(skipped) > 0 {
+		index.Skipped = skipped
+		stats.QuarantinedSkipped = len(skipped)
+		for _, skip := range skipped {
+			fmt.Fprintf(os.Stderr, "index: skipping quarantined file %s (%s) — retry with 'canopy index build --retry-quarantined'\n",
+				skip.Path, skip.Reason)
+		}
+	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return index, stats, ctxErr
 	}
 	return index, stats, nil
 }
 
-func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.FileSummary) grammars.ParsePolicy {
+func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.FileSummary, guard *buildGuard) grammars.ParsePolicy {
 	policy := grammars.DefaultPolicy()
 	for dir := range DefaultSkipDirs() {
 		policy.SkipDirs = append(policy.SkipDirs, dir)
@@ -286,6 +299,12 @@ func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.F
 			if canReuseSummary(prev, size, modTime.UnixNano(), lang) {
 				return false
 			}
+		}
+		if guard != nil {
+			if _, quarantined := guard.checkQuarantine(relPath, size, modTime.UnixNano()); quarantined {
+				return false
+			}
+			guard.markStarted(relPath, size, modTime.UnixNano())
 		}
 		return true
 	}
@@ -355,12 +374,12 @@ func (b *Builder) collectReusableFiles(root string, previousByPath map[string]mo
 	}
 }
 
-func (b *Builder) consumeWalkResults(ctx context.Context, root string, policy grammars.ParsePolicy, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
+func (b *Builder) consumeWalkResults(ctx context.Context, root string, policy grammars.ParsePolicy, guard *buildGuard, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
 	results, statsFn := grammars.WalkAndParse(ctx, root, policy)
 	gcEvery := indexGCEvery()
 	processed := 0
 	for file := range results {
-		b.processWalkedFile(file, root, filesByPath, errorsByPath, stats, opts)
+		b.processWalkedFile(file, root, guard, filesByPath, errorsByPath, stats, opts)
 		processed++
 		if gcEvery > 0 && processed%gcEvery == 0 {
 			runtime.GC()
@@ -369,12 +388,15 @@ func (b *Builder) consumeWalkResults(ctx context.Context, root string, policy gr
 	_ = statsFn()
 }
 
-func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
+func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, guard *buildGuard, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError, stats *BuildStats, opts BuildOptions) {
 	relPath, relErr := filepath.Rel(root, file.Path)
 	if relErr != nil {
 		relPath = file.Path
 	}
 	relPath = filepath.ToSlash(relPath)
+	if guard != nil {
+		guard.markDone(relPath)
+	}
 
 	stats.CandidateFiles++
 
@@ -670,6 +692,34 @@ func previousFilesByPath(previous *model.Index, root string) map[string]model.Fi
 		reused[file.Path] = file
 	}
 	return reused
+}
+
+// GatePreviousIndex refuses per-file reuse from an index written by a
+// different canopy version, returning nil in that case. Callers that seed
+// other consumers with a baseline index (for example the streaming
+// checkpoint writer, which would otherwise persist old-builder entries under
+// the current builder_version stamp) must gate through this too.
+func GatePreviousIndex(previous *model.Index) *model.Index {
+	return gatePreviousIndex(previous)
+}
+
+// gatePreviousIndex refuses per-file reuse from an index written by a
+// different canopy version. Symbol extraction output depends on canopy's own
+// code and the pinned grammar set, so entries from another builder version can
+// carry stale or wrong symbols that no size/mtime check will ever invalidate
+// (observed in the field: duplicate definitions named after their return
+// type, poisoning dead-code analysis until a cold rebuild).
+func gatePreviousIndex(previous *model.Index) *model.Index {
+	if previous == nil {
+		return nil
+	}
+	if previous.BuilderVersion == buildinfo.Version {
+		return previous
+	}
+	fmt.Fprintf(os.Stderr,
+		"index: cache was built by canopy %q, current is %q — ignoring cached entries and re-parsing\n",
+		previous.BuilderVersion, buildinfo.Version)
+	return nil
 }
 
 func canReuseSummary(summary model.FileSummary, sizeBytes int64, modTimeUnixNano int64, language string) bool {

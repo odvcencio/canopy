@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"m31labs.dev/canopy/pkg/deadscan"
 	"m31labs.dev/canopy/pkg/roots"
 	"m31labs.dev/canopy/pkg/xref"
 )
@@ -52,17 +53,20 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 		return nil, err
 	}
 
+	includeWeak := boolArg(args, "include_weak", false)
+
 	type deadMatch struct {
-		File       string `json:"file"`
-		Package    string `json:"package"`
-		Kind       string `json:"kind"`
-		Name       string `json:"name"`
-		Signature  string `json:"signature,omitempty"`
-		StartLine  int    `json:"start_line"`
-		EndLine    int    `json:"end_line"`
-		Incoming   int    `json:"incoming"`
-		Outgoing   int    `json:"outgoing"`
-		Confidence string `json:"confidence,omitempty"`
+		File          string `json:"file"`
+		Package       string `json:"package"`
+		Kind          string `json:"kind"`
+		Name          string `json:"name"`
+		Signature     string `json:"signature,omitempty"`
+		StartLine     int    `json:"start_line"`
+		EndLine       int    `json:"end_line"`
+		Incoming      int    `json:"incoming"`
+		Outgoing      int    `json:"outgoing"`
+		Confidence    string `json:"confidence,omitempty"`
+		ValueMentions int    `json:"value_mentions,omitempty"`
 	}
 
 	matches := make([]deadMatch, 0, 64)
@@ -109,6 +113,33 @@ func (s *Service) callDead(args map[string]any) (any, error) {
 			Confidence: string(conf),
 		})
 	}
+
+	// The call graph misses value references (callbacks, dispatch tables). A
+	// source-text mention outside the definition means the candidate is not
+	// provably dead: drop it unless include_weak asks for the full list.
+	candidates := make([]deadscan.Candidate, len(matches))
+	for i, match := range matches {
+		candidates[i] = deadscan.Candidate{
+			File:      match.File,
+			Name:      match.Name,
+			StartLine: match.StartLine,
+			EndLine:   match.EndLine,
+		}
+	}
+	mentionCounts := deadscan.MentionCounts(graph.Root, idx.Files, candidates)
+	weakKept := matches[:0]
+	for i := range matches {
+		if mentionCounts[i] == 0 {
+			weakKept = append(weakKept, matches[i])
+			continue
+		}
+		if includeWeak {
+			matches[i].Confidence = string(roots.ConfidenceLow)
+			matches[i].ValueMentions = mentionCounts[i]
+			weakKept = append(weakKept, matches[i])
+		}
+	}
+	matches = weakKept
 
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].File == matches[j].File {

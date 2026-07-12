@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"m31labs.dev/canopy/pkg/buildinfo"
 	"m31labs.dev/canopy/pkg/model"
 )
 
@@ -105,9 +106,10 @@ func (p *PartialIndex) Snapshot() *model.Index {
 
 func snapshotIndex(root string, filesByPath map[string]model.FileSummary, errorsByPath map[string]model.ParseError) *model.Index {
 	idx := &model.Index{
-		Version:     schemaVersion,
-		Root:        filepath.Clean(root),
-		GeneratedAt: time.Now().UTC(),
+		Version:        schemaVersion,
+		BuilderVersion: buildinfo.Version,
+		Root:           filepath.Clean(root),
+		GeneratedAt:    time.Now().UTC(),
 	}
 
 	paths := make([]string, 0, len(filesByPath))

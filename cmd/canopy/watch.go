@@ -291,18 +291,23 @@ func parseErrorsEqual(left, right []model.ParseError) bool {
 }
 
 func printIndexSummary(idx *model.Index, stats index.BuildStats, incremental bool) {
+	skipped := ""
+	if len(idx.Skipped) > 0 {
+		skipped = fmt.Sprintf(" skipped=%d", len(idx.Skipped))
+	}
 	if incremental {
 		fmt.Printf(
-			"indexed: files=%d symbols=%d errors=%d root=%s parsed=%d reused=%d\n",
+			"indexed: files=%d symbols=%d errors=%d root=%s parsed=%d reused=%d%s\n",
 			idx.FileCount(),
 			idx.SymbolCount(),
 			len(idx.Errors),
 			idx.Root,
 			stats.ParsedFiles,
 			stats.ReusedFiles,
+			skipped,
 		)
 		return
 	}
 
-	fmt.Printf("indexed: files=%d symbols=%d errors=%d root=%s\n", idx.FileCount(), idx.SymbolCount(), len(idx.Errors), idx.Root)
+	fmt.Printf("indexed: files=%d symbols=%d errors=%d root=%s%s\n", idx.FileCount(), idx.SymbolCount(), len(idx.Errors), idx.Root, skipped)
 }
