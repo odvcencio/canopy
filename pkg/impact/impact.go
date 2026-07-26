@@ -46,14 +46,21 @@ func Analyze(idx *model.Index, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("index is nil")
 	}
 
-	maxDepth := opts.MaxDepth
-	if maxDepth <= 0 {
-		maxDepth = 10
-	}
-
 	graph, err := xref.Build(idx)
 	if err != nil {
 		return nil, fmt.Errorf("build xref graph: %w", err)
+	}
+	return AnalyzeWithGraph(idx, graph, opts)
+}
+
+// AnalyzeWithGraph computes impact with a graph that the caller already built.
+func AnalyzeWithGraph(idx *model.Index, graph xref.Graph, opts Options) (*Result, error) {
+	if idx == nil {
+		return nil, fmt.Errorf("index is nil")
+	}
+	maxDepth := opts.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = 10
 	}
 
 	// Resolve changed definitions.

@@ -12,7 +12,12 @@ import (
 	"m31labs.dev/canopy/pkg/model"
 )
 
-const maxScanLines = 40
+const (
+	maxScanLines              = 40
+	minifiedBundleMinBytes    = 100 * 1024
+	minifiedBundleMaxLines    = 20
+	minifiedBundleMinLineSize = 4 * 1024
+)
 
 var preamblePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^\s*(//|#|/\*|\*|--)\s*(copyright|license|SPDX|Permission is hereby|Licensed under|All rights reserved)`),
@@ -106,7 +111,12 @@ func (d *Detector) Detect(relPath string, source []byte) *model.GeneratedInfo {
 		}
 	}
 
-	// Phase 3: header markers (scan first N lines of source).
+	// Phase 3: minified bundle shape.
+	if info := DetectMinifiedBundle(relPath, source); info != nil {
+		return info
+	}
+
+	// Phase 4: header markers (scan first N lines of source).
 	if len(source) == 0 {
 		return nil
 	}
@@ -129,6 +139,80 @@ func (d *Detector) Detect(relPath string, source []byte) *model.GeneratedInfo {
 	}
 
 	return nil
+}
+
+// DetectMinifiedBundle identifies large JavaScript bundles with very long lines.
+// These files are compiler output even when they do not contain a marker.
+func DetectMinifiedBundle(path string, source []byte) *model.GeneratedInfo {
+	if len(source) < minifiedBundleMinBytes || !isBundleExtension(path) {
+		return nil
+	}
+	lines := bytes.Count(source, []byte{'\n'}) + 1
+	if lines > minifiedBundleMaxLines || len(source)/lines < minifiedBundleMinLineSize {
+		return nil
+	}
+	return &model.GeneratedInfo{
+		Generator: "bundler",
+		Reason:    "minified",
+	}
+}
+
+// ShouldInspectBeforeParse reports whether a large JavaScript file can be
+// classified from its bytes before the structural parser runs.
+func ShouldInspectBeforeParse(path string, size int64) bool {
+	return size >= minifiedBundleMinBytes && isBundleExtension(path)
+}
+
+// ClassifyMinifiedBundles annotates legacy index entries that predate bundle
+// detection. It returns the original index when no annotation is necessary.
+func ClassifyMinifiedBundles(idx *model.Index) *model.Index {
+	if idx == nil {
+		return nil
+	}
+	var classified *model.Index
+	for i := range idx.Files {
+		file := idx.Files[i]
+		if file.Generated != nil || !isMinifiedBundleSummary(file) {
+			continue
+		}
+		if classified == nil {
+			copyIndex := *idx
+			copyIndex.Files = append([]model.FileSummary(nil), idx.Files...)
+			classified = &copyIndex
+		}
+		classified.Files[i].Generated = &model.GeneratedInfo{
+			Generator: "bundler",
+			Reason:    "minified",
+		}
+	}
+	if classified != nil {
+		return classified
+	}
+	return idx
+}
+
+func isMinifiedBundleSummary(file model.FileSummary) bool {
+	if file.SizeBytes < minifiedBundleMinBytes || !isBundleExtension(file.Path) {
+		return false
+	}
+	maxLine := 0
+	for _, symbol := range file.Symbols {
+		if symbol.EndLine > maxLine {
+			maxLine = symbol.EndLine
+		}
+	}
+	return maxLine > 0 &&
+		maxLine <= minifiedBundleMaxLines &&
+		file.SizeBytes/int64(maxLine) >= minifiedBundleMinLineSize
+}
+
+func isBundleExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".mjs", ".cjs":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractHeader(source []byte, maxLines int) []byte {

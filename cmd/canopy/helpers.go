@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"m31labs.dev/canopy/pkg/generated"
 	"m31labs.dev/canopy/pkg/index"
 	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/xref"
@@ -115,6 +116,7 @@ func definitionLabel(definition xref.Definition) string {
 // --include-generated was passed. If --generator is set, it filters to
 // only files from that generator (or "human" for non-generated files).
 func applyGeneratedFilter(cmd *cobra.Command, idx *model.Index) *model.Index {
+	idx = generated.ClassifyMinifiedBundles(idx)
 	generator, _ := cmd.Flags().GetString("generator")
 	includeGenerated, _ := cmd.Flags().GetBool("include-generated")
 	if generator != "" {

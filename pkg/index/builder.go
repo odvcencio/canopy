@@ -310,7 +310,8 @@ func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.F
 			// Detect by filename only (nil source). Returns non-nil for
 			// filename-pattern matches without needing file contents.
 			info := b.detector.Detect(relPath, nil)
-			return info != nil && info.Reason == "filename"
+			return info != nil && info.Reason == "filename" ||
+				generated.ShouldInspectBeforeParse(relPath, size)
 		}
 	}
 
@@ -405,20 +406,46 @@ func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, files
 	}
 
 	// Fast path: file was read but tree-sitter parse was skipped
-	// (SkipTreeParse hook returned true). Use regex extraction.
+	// (SkipTreeParse hook returned true). Use regex extraction for generated
+	// files. Parse a false-positive preflight candidate normally.
 	if file.Tree == nil && file.IsRead && file.Err == nil {
-		summary := generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+		var genInfo *model.GeneratedInfo
+		if b.detector != nil {
+			genInfo = b.detector.Detect(relPath, file.Source)
+		}
+		var (
+			summary  model.FileSummary
+			parseErr error
+		)
+		if genInfo != nil {
+			summary = generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+		} else {
+			summary, parseErr = parser.Parse(file.Path, file.Source)
+		}
+		if parseErr != nil {
+			parseFailure := model.ParseError{Path: relPath, Error: parseErr.Error()}
+			errorsByPath[relPath] = parseFailure
+			emitBuildEvent(opts, BuildEvent{
+				Kind:       BuildEventError,
+				Path:       relPath,
+				ParseError: parseFailure,
+				Stats:      *stats,
+			})
+			file.Close()
+			return
+		}
 		summary.Path = relPath
 		summary.SizeBytes = file.Size
 		summary.Language = parser.Language()
-		if b.detector != nil {
-			summary.Generated = b.detector.Detect(relPath, file.Source)
-		}
+		summary.Generated = genInfo
 		if fi, statErr := os.Stat(file.Path); statErr == nil {
 			summary.ModTimeUnixNano = fi.ModTime().UnixNano()
 		}
 		for i := range summary.Symbols {
 			summary.Symbols[i].File = relPath
+		}
+		for i := range summary.References {
+			summary.References[i].File = relPath
 		}
 		file.Close()
 		filesByPath[relPath] = summary

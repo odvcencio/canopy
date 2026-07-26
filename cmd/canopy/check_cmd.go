@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -58,22 +59,23 @@ type checkResult struct {
 
 func newCheckCmd() *cobra.Command {
 	var (
-		cachePath       string
-		noCache         bool
-		jsonOutput      bool
-		format          string
-		base            string
-		maxCyclomatic   int
-		maxCognitive    int
-		maxLines        int
-		maxGeneratedPct int
-		maxInstability     float64
-		maxDistance         float64
-		maxLCOM            int
-		maxFields          int
-		maxInterfaceWidth  int
-		maxSmellsError     int
-		maxRisk            float64
+		cachePath         string
+		noCache           bool
+		jsonOutput        bool
+		format            string
+		base              string
+		maxCyclomatic     int
+		maxCognitive      int
+		maxLines          int
+		maxGeneratedPct   int
+		maxInstability    float64
+		maxDistance       float64
+		maxLCOM           int
+		maxFields         int
+		maxInterfaceWidth int
+		maxSmellsError    int
+		maxRisk           float64
+		timeout           time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -112,7 +114,9 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
+			stopPhase := startAnalysisPhase("loading or building the structural index")
 			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
+			stopPhase()
 			if err != nil {
 				return err
 			}
@@ -124,7 +128,12 @@ func newCheckCmd() *cobra.Command {
 
 			// Checks 1-3 share a single complexity report.
 			if maxCyclomatic > 0 || maxCognitive > 0 || maxLines > 0 {
+				stopPhase = startAnalysisPhase("computing function complexity")
 				report, analyzeErr := complexity.Analyze(analysisIdx, analysisIdx.Root, complexity.Options{})
+				stopPhase()
+				if analyzeErr != nil {
+					return fmt.Errorf("complexity analysis: %w", analyzeErr)
+				}
 
 				// Check 1: Cyclomatic complexity.
 				if maxCyclomatic > 0 {
@@ -507,5 +516,7 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxInterfaceWidth, "max-interface-width", 0, "max interface width (0 to disable)")
 	cmd.Flags().IntVar(&maxSmellsError, "max-smells-error", 0, "max error-severity structural smells (0 to disable)")
 	cmd.Flags().Float64Var(&maxRisk, "max-risk", 0, "max composite risk score per function 0.0-1.0 (0 to disable)")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultAnalysisTimeout, "hard runtime limit, capped at 4m45s")
+	cmd.RunE = boundedAnalysisRun(&timeout, cmd.RunE)
 	return cmd
 }
