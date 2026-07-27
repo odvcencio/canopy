@@ -54,6 +54,7 @@ type checkResult struct {
 	Violations   int              `json:"violations"`
 	Base         string           `json:"base,omitempty"`
 	ChangedFiles int              `json:"changed_files,omitempty"`
+	IndexScope   string           `json:"index_scope,omitempty"`
 	Details      []checkViolation `json:"details,omitempty"`
 }
 
@@ -115,7 +116,7 @@ func newCheckCmd() *cobra.Command {
 			}
 
 			stopPhase := startAnalysisPhase("loading or building the structural index")
-			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
+			idx, err := loadOrBuildCheck(cmd, cachePath, target, noCache, base)
 			stopPhase()
 			if err != nil {
 				return err
@@ -428,6 +429,7 @@ func newCheckCmd() *cobra.Command {
 				Violations:   len(violations),
 				Base:         base,
 				ChangedFiles: numChanged,
+				IndexScope:   analysisIndexScope(cmd),
 				Details:      violations,
 			}
 			if len(violations) > 0 {
@@ -467,7 +469,7 @@ func newCheckCmd() *cobra.Command {
 				}
 			default:
 				if base != "" {
-					fmt.Printf("check: %s (%d checks, %d violations, base=%s, %d files changed)\n", result.Status, result.Checks, result.Violations, base, numChanged)
+					fmt.Printf("check: %s (%d checks, %d violations, base=%s, %d files changed, index_scope=%s)\n", result.Status, result.Checks, result.Violations, base, numChanged, result.IndexScope)
 				} else {
 					fmt.Printf("check: %s (%d checks, %d violations)\n", result.Status, result.Checks, result.Violations)
 				}

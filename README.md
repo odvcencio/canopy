@@ -39,6 +39,9 @@ canopy mcp --root .
 
 Current main uses gotreesitter `v0.45.0` and keeps large-repository indexing bounded by default: the CLI uses a 1 GiB Go soft memory limit when the caller has not supplied one, while index builds use at most two concurrent parse workers and a garbage collection cadence of 32 parsed files. Index walks also prune ignored directories before descent and skip unsupported or tagless grammars before parsing.
 
+Diff-aware checks and reviews use a valid repository index when one exists.
+Without one, they build and report a changed-only snapshot.
+
 The defaults remain tunable for unusual workloads:
 
 - `GOMEMLIMIT` overrides the Go soft memory limit.

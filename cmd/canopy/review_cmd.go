@@ -36,6 +36,7 @@ type reviewReport struct {
 	Base            string                  `json:"base"`
 	ChangedFiles    int                     `json:"changed_files"`
 	Files           []string                `json:"files"`
+	IndexScope      string                  `json:"index_scope"`
 	ComplexityDelta []reviewComplexityDelta `json:"complexity_delta,omitempty"`
 	BoundaryIssues  []boundaries.Violation  `json:"boundary_issues,omitempty"`
 	NewCapabilities []reviewCapaMatch       `json:"new_capabilities,omitempty"`
@@ -71,7 +72,7 @@ func newReviewCmd() *cobra.Command {
 				return err
 			}
 			if len(changed) == 0 {
-				report := reviewReport{Base: base, ChangedFiles: 0, Files: []string{}}
+				report := reviewReport{Base: base, ChangedFiles: 0, Files: []string{}, IndexScope: "changed"}
 				if jsonOutput {
 					return emitJSON(report)
 				}
@@ -85,7 +86,7 @@ func newReviewCmd() *cobra.Command {
 			}
 
 			stopPhase := startAnalysisPhase("loading or building the structural index")
-			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
+			idx, changedScoped, err := loadOrBuildChanged(cmd, cachePath, target, noCache, changed)
 			stopPhase()
 			if err != nil {
 				return err
@@ -96,6 +97,10 @@ func newReviewCmd() *cobra.Command {
 				Base:         base,
 				ChangedFiles: len(changed),
 				Files:        changed,
+				IndexScope:   "repository",
+			}
+			if changedScoped {
+				report.IndexScope = "changed"
 			}
 			var (
 				reviewGraph      xref.Graph
@@ -199,7 +204,7 @@ func newReviewCmd() *cobra.Command {
 			}
 
 			// Text output.
-			fmt.Printf("review: base=%s changed_files=%d blast_radius=%d\n", report.Base, report.ChangedFiles, report.BlastRadius)
+			fmt.Printf("review: base=%s changed_files=%d index_scope=%s blast_radius=%d\n", report.Base, report.ChangedFiles, report.IndexScope, report.BlastRadius)
 			if len(report.ComplexityDelta) > 0 {
 				fmt.Println("\ncomplexity in changed files:")
 				for _, cd := range report.ComplexityDelta {

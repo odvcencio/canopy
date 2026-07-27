@@ -47,6 +47,72 @@ func TestMain() {}
 	}
 }
 
+func TestBuildPathsIndexesOnlySelectedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll nested failed: %v", err)
+	}
+	write := func(path, source string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmpDir, path), []byte(source), 0o644); err != nil {
+			t.Fatalf("WriteFile %s failed: %v", path, err)
+		}
+	}
+	write("selected.go", "package sample\n\nfunc Selected() {}\n")
+	write("ignored.go", "package sample\n\nfunc Ignored() {}\n")
+	write("nested/also_selected.go", "package nested\n\nfunc AlsoSelected() {}\n")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(filepath.Join(tmpDir, "ignored.go"), filepath.Join(tmpDir, "linked.go")); err != nil {
+			t.Fatalf("Symlink linked.go failed: %v", err)
+		}
+	}
+
+	builder := NewBuilder()
+	idx, err := builder.BuildPaths(context.Background(), tmpDir, []string{
+		"nested/also_selected.go",
+		"selected.go",
+		"selected.go",
+		"deleted.go",
+		"linked.go",
+	})
+	if err != nil {
+		t.Fatalf("BuildPaths returned error: %v", err)
+	}
+	if got, want := idx.FileCount(), 2; got != want {
+		t.Fatalf("BuildPaths file count = %d, want %d", got, want)
+	}
+	gotPaths := []string{idx.Files[0].Path, idx.Files[1].Path}
+	wantPaths := []string{"nested/also_selected.go", "selected.go"}
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("BuildPaths paths = %v, want %v", gotPaths, wantPaths)
+	}
+	for _, file := range idx.Files {
+		for _, symbol := range file.Symbols {
+			if symbol.File != file.Path {
+				t.Fatalf("symbol file = %q, want %q", symbol.File, file.Path)
+			}
+		}
+	}
+}
+
+func TestBuildPathsRejectsOutsideRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	builder := NewBuilder()
+	if _, err := builder.BuildPaths(context.Background(), tmpDir, []string{"../outside.go"}); err == nil {
+		t.Fatal("BuildPaths accepted a path outside the root")
+	}
+}
+
+func TestBuildPathsHonorsCancelledContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	builder := NewBuilder()
+	if _, err := builder.BuildPaths(ctx, tmpDir, []string{"selected.go"}); err != context.Canceled {
+		t.Fatalf("BuildPaths error = %v, want context.Canceled", err)
+	}
+}
+
 func TestShouldSkipIndexPath_UsesIgnoreMatcherForDirectories(t *testing.T) {
 	root := filepath.Clean("/repo")
 	matcher := ignore.ParsePatterns([]string{"generated/**"})
