@@ -41,6 +41,8 @@ Current main uses gotreesitter `v0.45.0` and keeps large-repository indexing bou
 
 Diff-aware checks and reviews use a valid repository index when one exists.
 Without one, they build and report a changed-only snapshot.
+Auto-discovered indexes refresh incrementally when source metadata changes.
+An explicit `--cache` path remains a fixed snapshot.
 
 The defaults remain tunable for unusual workloads:
 

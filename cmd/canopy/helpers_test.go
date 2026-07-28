@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"m31labs.dev/canopy/pkg/index"
+	"m31labs.dev/canopy/pkg/model"
 )
 
 func TestLoadOrBuildChangedUsesChangedOnlyFallback(t *testing.T) {
@@ -74,4 +77,52 @@ func TestLoadOrBuildCheckDerivesChangedPathsFromBase(t *testing.T) {
 	if got, want := idx.Files[0].Path, "changed.go"; got != want {
 		t.Fatalf("check path = %q, want %q", got, want)
 	}
+}
+
+func TestLoadOrBuildRefreshesAutoCacheWithoutConfig(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "main.go")
+	if err := os.WriteFile(sourcePath, []byte("package sample\n\nfunc Cached() {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(main.go) failed: %v", err)
+	}
+	builder, err := index.NewBuilderWithWorkspaceIgnores(root)
+	if err != nil {
+		t.Fatalf("NewBuilderWithWorkspaceIgnores returned error: %v", err)
+	}
+	cached, err := builder.BuildPath(root)
+	if err != nil {
+		t.Fatalf("BuildPath returned error: %v", err)
+	}
+	cachePath := filepath.Join(root, ".canopy", "index.json")
+	if err := index.Save(cachePath, cached); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+	if cached.ConfigHashes != nil {
+		t.Fatalf("ConfigHashes = %#v, want nil for this regression", cached.ConfigHashes)
+	}
+
+	if err := os.WriteFile(sourcePath, []byte("package sample\n\nfunc RefreshedWithLongerName() {}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile edited main.go failed: %v", err)
+	}
+	loaded, err := loadOrBuild(&cobra.Command{}, "", root, false)
+	if err != nil {
+		t.Fatalf("loadOrBuild returned error: %v", err)
+	}
+	if !helperIndexHasSymbol(loaded, "RefreshedWithLongerName") {
+		t.Fatal("auto-discovered cache did not refresh the edited source")
+	}
+	if helperIndexHasSymbol(loaded, "Cached") {
+		t.Fatal("auto-discovered cache retained the stale symbol")
+	}
+}
+
+func helperIndexHasSymbol(idx *model.Index, name string) bool {
+	for _, file := range idx.Files {
+		for _, symbol := range file.Symbols {
+			if symbol.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
