@@ -93,25 +93,29 @@ func loadOrBuildWithScope(cmd *cobra.Command, cachePath string, target string, n
 	if !noCache {
 		autoPath := filepath.Join(target, ".canopy", "index.json")
 		if fi, err := os.Stat(autoPath); err == nil {
-			// Use lenient load: accept older schema versions with a warning
-			// rather than rebuilding from scratch (which loads all grammars
-			// and can OOM on large repos).
 			if idx, loadErr := index.LoadLenient(autoPath); loadErr == nil {
-				age := time.Since(fi.ModTime()).Truncate(time.Second)
-				if idx.ConfigHashes == nil {
-					fmt.Fprintf(os.Stderr, "index: using cached %s (age %s, rebuild with 'gts index build' for config tracking)\n", autoPath, age)
-					return idx.ExcludePaths(excludes), false, nil
+				builder, buildErr := index.NewBuilderWithWorkspaceIgnores(target)
+				if buildErr != nil {
+					return nil, false, buildErr
 				}
-				current, hashErr := index.ComputeConfigHashes(target)
-				if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
+				idx, status, refreshErr := builder.EnsureFreshCache(cmd.Context(), target, autoPath, idx)
+				if refreshErr != nil {
+					return nil, false, refreshErr
+				}
+				age := time.Since(fi.ModTime()).Truncate(time.Second)
+				switch status {
+				case index.CacheIncrementallyRefreshed:
+					fmt.Fprintf(os.Stderr, "index: refreshed stale cache %s\n", autoPath)
+				case index.CacheFullyRebuilt:
+					fmt.Fprintf(os.Stderr, "index: rebuilt cache %s after configuration or root change\n", autoPath)
+				default:
 					if len(excludes) > 0 {
 						fmt.Fprintf(os.Stderr, "index: using cached %s (age %s, applying %d exclusion patterns post-load)\n", autoPath, age, len(excludes))
 					} else {
-						fmt.Fprintf(os.Stderr, "index: using cached %s (age %s, pass --no-cache for fresh)\n", autoPath, age)
+						fmt.Fprintf(os.Stderr, "index: using fresh cache %s (age %s)\n", autoPath, age)
 					}
-					return idx.ExcludePaths(excludes), false, nil
 				}
-				fmt.Fprintf(os.Stderr, "index: config changed since last build, rebuilding...\n")
+				return idx.ExcludePaths(excludes), false, nil
 			}
 		}
 	}
@@ -127,18 +131,6 @@ func loadOrBuildWithScope(cmd *cobra.Command, cachePath string, target string, n
 	}
 	idx, _, err := builder.BuildPathIncremental(cmd.Context(), target, nil)
 	return idx, false, err
-}
-
-func configHashesMatch(cached, current map[string]string) bool {
-	if len(cached) != len(current) {
-		return false
-	}
-	for k, v := range cached {
-		if current[k] != v {
-			return false
-		}
-	}
-	return true
 }
 
 func emitJSON(value any) error {

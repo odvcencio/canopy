@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
   It reports the index scope in text and JSON output.
 
 ### Fixed
+- CLI and MCP searches now refresh stale auto-discovered indexes after source edits, deletions, or additions.
+- `index validate` now detects added source files and returns status 2 for stale JSON reports.
 - Large full-index runs no longer rely on host CPU count and optional GC tuning for memory containment.
 - Minified JavaScript bundles are now classified before structural parsing.
 - Complexity analysis now reuses source spans and processes files in parallel.
