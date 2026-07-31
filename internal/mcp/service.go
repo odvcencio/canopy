@@ -514,14 +514,15 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_review",
-			Description: "Aggregate review report for changed files: complexity, boundary violations, capabilities, blast radius",
+			Description: "Deterministic change receipt for changed files: structural entity deltas, complexity delta, public API delta, boundary/capability drift, blast radius, and routing risk score",
 			InputSchema: Schema{
 				Properties: map[string]Property{
-					"base":              {Type: "string", Description: "git ref to diff against (required, e.g. main, HEAD~1)"},
-					"path":              {Type: "string", Description: "index root path"},
-					"cache":             {Type: "string", Description: "index cache path"},
-					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
-					"generator":         {Type: "string", Description: "filter to specific generator"},
+					"base":           {Type: "string", Description: "git ref to diff against (required, e.g. main, HEAD~1)"},
+					"head":           {Type: "string", Description: "git ref for head (default: working tree)"},
+					"path":           {Type: "string", Description: "repository root path"},
+					"include_tests":  {Type: "boolean", Description: "compute test impact for changed entities (default: false)"},
+					"include_risk":   {Type: "boolean", Description: "compute the routing risk score (default: false)"},
+					"policy_version": {Type: "string", Description: "policy version recorded on the request for audit/reproducibility"},
 				},
 				Required: []string{"base"},
 			}.ToMap(),

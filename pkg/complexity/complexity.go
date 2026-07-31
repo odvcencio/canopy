@@ -70,15 +70,9 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 	// Cache one parser per language — NewParser builds large lookup tables
 	// from the grammar's parse table, so reusing parsers avoids allocating
 	// those tables for every function (the main OOM driver on large repos).
-	parserCache := map[*gotreesitter.Language]*gotreesitter.Parser{}
+	cache := NewParserCache()
 
 	for _, file := range idx.Files {
-		// Detect language once per file — same for all symbols within it.
-		entry := grammars.DetectLanguage(file.Path)
-		if entry == nil {
-			continue
-		}
-
 		// Skip files with no callable symbols before touching disk.
 		hasCallable := false
 		for _, sym := range file.Symbols {
@@ -100,67 +94,7 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 			continue
 		}
 
-		// Resolve language and parser once per file, not per symbol.
-		lang := entry.Language()
-		parser, ok := parserCache[lang]
-		if !ok {
-			parser = gotreesitter.NewParser(lang)
-			parserCache[lang] = parser
-		}
-
-		for _, sym := range file.Symbols {
-			if !isCallableSymbol(sym.Kind) {
-				continue
-			}
-
-			body := extractBody(source, sym.StartLine, sym.EndLine)
-			if len(body) == 0 {
-				continue
-			}
-
-			var tree *gotreesitter.Tree
-			var parseErr error
-			if entry.TokenSourceFactory != nil {
-				ts := entry.TokenSourceFactory(body, lang)
-				tree, parseErr = parser.ParseWithTokenSource(body, ts)
-			} else {
-				tree, parseErr = parser.Parse(body)
-			}
-			if parseErr != nil || tree == nil {
-				continue
-			}
-
-			rootNode := tree.RootNode()
-			if rootNode == nil {
-				tree.Release()
-				continue
-			}
-
-			cyc, cog, maxNest, rets, boolDep := computeComplexity(rootNode, lang, body)
-			tree.Release()
-
-			metrics := FunctionMetrics{
-				File:       file.Path,
-				Name:       sym.Name,
-				Kind:       sym.Kind,
-				Language:   entry.Name,
-				StartLine:  sym.StartLine,
-				EndLine:    sym.EndLine,
-				Lines:      countNonBlankLines(body),
-				Cyclomatic: cyc,
-				Cognitive:  cog,
-				MaxNesting: maxNest,
-				Parameters: countParameters(sym.Signature),
-				Returns:    rets,
-				BoolDepth:  boolDep,
-			}
-
-			if opts.MinCyclomatic > 0 && metrics.Cyclomatic < opts.MinCyclomatic {
-				continue
-			}
-
-			functions = append(functions, metrics)
-		}
+		functions = append(functions, AnalyzeContent(file, source, cache, opts)...)
 	}
 
 	sortFunctions(functions, opts.Sort)
@@ -175,6 +109,109 @@ func Analyze(idx *model.Index, root string, opts Options) (*Report, error) {
 		Functions: functions,
 		Summary:   summary,
 	}, nil
+}
+
+// ParserCache caches one gotreesitter parser per language so callers
+// analyzing many files avoid rebuilding grammar lookup tables per file (see
+// Analyze's doc comment for why this matters on large repos).
+type ParserCache struct {
+	parsers map[*gotreesitter.Language]*gotreesitter.Parser
+}
+
+// NewParserCache returns an empty parser cache ready for use with
+// AnalyzeContent.
+func NewParserCache() *ParserCache {
+	return &ParserCache{parsers: map[*gotreesitter.Language]*gotreesitter.Parser{}}
+}
+
+func (c *ParserCache) parserFor(lang *gotreesitter.Language) *gotreesitter.Parser {
+	parser, ok := c.parsers[lang]
+	if !ok {
+		parser = gotreesitter.NewParser(lang)
+		c.parsers[lang] = parser
+	}
+	return parser
+}
+
+// AnalyzeContent computes complexity metrics for the callable symbols in a
+// single file's structural summary, using the given in-memory source instead
+// of reading file.Path from disk. It lets callers compute true base/head
+// complexity deltas from content that does not exist in the working tree
+// (for example a base-ref file body read via `git show`).
+//
+// cache may be nil, in which case a private one-shot cache is used; pass a
+// shared *ParserCache across calls for the same language to avoid rebuilding
+// grammar lookup tables per file.
+func AnalyzeContent(file model.FileSummary, source []byte, cache *ParserCache, opts Options) []FunctionMetrics {
+	if len(source) == 0 {
+		return nil
+	}
+	entry := grammars.DetectLanguage(file.Path)
+	if entry == nil {
+		return nil
+	}
+	if cache == nil {
+		cache = NewParserCache()
+	}
+
+	lang := entry.Language()
+	parser := cache.parserFor(lang)
+
+	functions := make([]FunctionMetrics, 0, len(file.Symbols))
+	for _, sym := range file.Symbols {
+		if !isCallableSymbol(sym.Kind) {
+			continue
+		}
+
+		body := extractBody(source, sym.StartLine, sym.EndLine)
+		if len(body) == 0 {
+			continue
+		}
+
+		var tree *gotreesitter.Tree
+		var parseErr error
+		if entry.TokenSourceFactory != nil {
+			ts := entry.TokenSourceFactory(body, lang)
+			tree, parseErr = parser.ParseWithTokenSource(body, ts)
+		} else {
+			tree, parseErr = parser.Parse(body)
+		}
+		if parseErr != nil || tree == nil {
+			continue
+		}
+
+		rootNode := tree.RootNode()
+		if rootNode == nil {
+			tree.Release()
+			continue
+		}
+
+		cyc, cog, maxNest, rets, boolDep := computeComplexity(rootNode, lang, body)
+		tree.Release()
+
+		metrics := FunctionMetrics{
+			File:       file.Path,
+			Name:       sym.Name,
+			Kind:       sym.Kind,
+			Language:   entry.Name,
+			StartLine:  sym.StartLine,
+			EndLine:    sym.EndLine,
+			Lines:      countNonBlankLines(body),
+			Cyclomatic: cyc,
+			Cognitive:  cog,
+			MaxNesting: maxNest,
+			Parameters: countParameters(sym.Signature),
+			Returns:    rets,
+			BoolDepth:  boolDep,
+		}
+
+		if opts.MinCyclomatic > 0 && metrics.Cyclomatic < opts.MinCyclomatic {
+			continue
+		}
+
+		functions = append(functions, metrics)
+	}
+	return functions
 }
 
 // EnrichWithXref populates fan-in and fan-out metrics by matching functions against xref definitions.

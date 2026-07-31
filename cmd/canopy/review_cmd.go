@@ -2,56 +2,29 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
-	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"m31labs.dev/canopy/internal/deps"
-	"m31labs.dev/canopy/pkg/boundaries"
-	"m31labs.dev/canopy/pkg/capa"
-	"m31labs.dev/canopy/pkg/complexity"
-	"m31labs.dev/canopy/pkg/impact"
-	"m31labs.dev/canopy/pkg/xref"
+	"m31labs.dev/canopy/pkg/changeintel"
 )
 
-type reviewComplexityDelta struct {
-	File       string `json:"file"`
-	Name       string `json:"name"`
-	Cyclomatic int    `json:"cyclomatic"`
-	Cognitive  int    `json:"cognitive"`
-	Lines      int    `json:"lines"`
-}
-
-type reviewCapaMatch struct {
-	Name       string `json:"name"`
-	Category   string `json:"category"`
-	Confidence string `json:"confidence"`
-	AttackID   string `json:"attack_id,omitempty"`
-}
-
-type reviewReport struct {
-	Base            string                  `json:"base"`
-	ChangedFiles    int                     `json:"changed_files"`
-	Files           []string                `json:"files"`
-	ComplexityDelta []reviewComplexityDelta  `json:"complexity_delta,omitempty"`
-	BoundaryIssues  []boundaries.Violation  `json:"boundary_issues,omitempty"`
-	NewCapabilities []reviewCapaMatch       `json:"new_capabilities,omitempty"`
-	BlastRadius     int                     `json:"blast_radius"`
-}
-
+// newReviewCmd is a thin adapter over pkg/changeintel.Service: it parses
+// flags into a changeintel.Request, calls Analyze, and prints the resulting
+// Receipt. All change-intelligence logic (structural deltas, complexity,
+// API surface, boundaries, capabilities, risk) lives in pkg/changeintel.
 func newReviewCmd() *cobra.Command {
 	var (
-		cachePath  string
-		noCache    bool
-		base       string
-		jsonOutput bool
+		base          string
+		head          string
+		jsonOutput    bool
+		includeTests  bool
+		includeRisk   bool
+		policyVersion string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "review [path]",
-		Short: "Aggregate review report for changed files vs a base ref",
+		Short: "Change receipt for changed files vs a base ref",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if base == "" {
@@ -63,167 +36,86 @@ func newReviewCmd() *cobra.Command {
 				target = args[0]
 			}
 
-			// Get changed files via git diff.
-			changed, err := reviewChangedFiles(target, base)
-			if err != nil {
-				return err
-			}
-			if len(changed) == 0 {
-				report := reviewReport{Base: base, ChangedFiles: 0, Files: []string{}}
-				if jsonOutput {
-					return emitJSON(report)
-				}
-				fmt.Printf("review: base=%s changed_files=0\n", base)
-				return nil
-			}
-
-			changedSet := make(map[string]bool, len(changed))
-			for _, f := range changed {
-				changedSet[f] = true
-			}
-
-			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
-			if err != nil {
-				return err
-			}
-			idx = applyGeneratedFilter(cmd, idx)
-
-			report := reviewReport{
-				Base:         base,
-				ChangedFiles: len(changed),
-				Files:        changed,
-			}
-
-			// 1. Complexity for changed files.
-			compReport, compErr := complexity.Analyze(idx, idx.Root, complexity.Options{})
-			if compErr == nil && compReport != nil {
-				graph, xrefErr := xref.Build(idx)
-				if xrefErr == nil {
-					complexity.EnrichWithXref(compReport, graph)
-				}
-				for _, fn := range compReport.Functions {
-					if !changedSet[fn.File] {
-						continue
-					}
-					report.ComplexityDelta = append(report.ComplexityDelta, reviewComplexityDelta{
-						File:       fn.File,
-						Name:       fn.Name,
-						Cyclomatic: fn.Cyclomatic,
-						Cognitive:  fn.Cognitive,
-						Lines:      fn.Lines,
-					})
-				}
-			}
-
-			// 2. Boundary violations.
-			cfg, cfgErr := boundaries.LoadConfig(target)
-			if cfgErr == nil && cfg != nil && len(cfg.Rules) > 0 {
-				depReport, depErr := deps.Build(idx, deps.Options{Mode: "package", IncludeEdges: true})
-				if depErr == nil {
-					importEdges := make([]boundaries.ImportEdge, 0, len(depReport.Edges))
-					for _, edge := range depReport.Edges {
-						if edge.Internal {
-							importEdges = append(importEdges, boundaries.ImportEdge{From: edge.From, To: edge.To})
-						}
-					}
-					violations := boundaries.Evaluate(cfg, importEdges)
-					for _, v := range violations {
-						for _, f := range changed {
-							pkg := reviewFileToPackage(f)
-							if pkg == v.From || pkg == v.To {
-								report.BoundaryIssues = append(report.BoundaryIssues, v)
-								break
-							}
-						}
-					}
-				}
-			}
-
-			// 3. Capabilities in changed files.
-			rules := capa.BuiltinRules()
-			changedIdx := *idx
-			changedIdx.Files = nil
-			for _, f := range idx.Files {
-				if changedSet[f.Path] {
-					changedIdx.Files = append(changedIdx.Files, f)
-				}
-			}
-			matches := capa.Detect(&changedIdx, rules)
-			for _, m := range matches {
-				report.NewCapabilities = append(report.NewCapabilities, reviewCapaMatch{
-					Name:       m.Rule.Name,
-					Category:   m.Rule.Category,
-					Confidence: m.Rule.Confidence,
-					AttackID:   m.Rule.AttackID,
-				})
-			}
-
-			// 4. Blast radius.
-			impactResult, impactErr := impact.Analyze(idx, impact.Options{
-				DiffRef:  base,
-				Root:     target,
-				MaxDepth: 5,
+			svc := changeintel.NewService()
+			receipt, err := svc.Analyze(cmd.Context(), changeintel.Request{
+				Root:          target,
+				Base:          changeintel.SnapshotRef{Ref: base},
+				Head:          changeintel.SnapshotRef{Ref: head},
+				IncludeTests:  includeTests,
+				IncludeRisk:   includeRisk,
+				PolicyVersion: policyVersion,
 			})
-			if impactErr == nil && impactResult != nil {
-				report.BlastRadius = impactResult.TotalAffected
+			if err != nil {
+				return err
 			}
 
 			if jsonOutput {
-				return emitJSON(report)
+				return emitJSON(receipt)
 			}
-
-			// Text output.
-			fmt.Printf("review: base=%s changed_files=%d blast_radius=%d\n", report.Base, report.ChangedFiles, report.BlastRadius)
-			if len(report.ComplexityDelta) > 0 {
-				fmt.Println("\ncomplexity in changed files:")
-				for _, cd := range report.ComplexityDelta {
-					fmt.Printf("  %s %s cyc=%d cog=%d lines=%d\n", cd.File, cd.Name, cd.Cyclomatic, cd.Cognitive, cd.Lines)
-				}
-			}
-			if len(report.BoundaryIssues) > 0 {
-				fmt.Printf("\nboundary violations: %d\n", len(report.BoundaryIssues))
-				for _, v := range report.BoundaryIssues {
-					fmt.Printf("  %s\n", v.Message)
-				}
-			}
-			if len(report.NewCapabilities) > 0 {
-				fmt.Printf("\ncapabilities detected: %d\n", len(report.NewCapabilities))
-				for _, c := range report.NewCapabilities {
-					fmt.Printf("  %s (%s, %s)\n", c.Name, c.Category, c.Confidence)
-				}
-			}
+			printReviewReceipt(receipt)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&cachePath, "cache", "", "load index from cache instead of parsing")
-	cmd.Flags().BoolVar(&noCache, "no-cache", false, "skip auto-discovery of cached index")
 	cmd.Flags().StringVar(&base, "base", "", "git ref to diff against (required)")
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
+	cmd.Flags().StringVar(&head, "head", "", "git ref for head (default: working tree)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit the full change receipt as JSON")
+	cmd.Flags().BoolVar(&includeTests, "include-tests", false, "compute test impact for changed entities")
+	cmd.Flags().BoolVar(&includeRisk, "include-risk", false, "compute the routing risk score")
+	cmd.Flags().StringVar(&policyVersion, "policy-version", "", "policy version recorded on the request for audit/reproducibility")
 	return cmd
 }
 
-func reviewChangedFiles(repoDir, base string) ([]string, error) {
-	gitCmd := exec.Command("git", "-C", repoDir, "diff", "--name-only", base)
-	out, err := gitCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git diff --name-only %s: %w", base, err)
+func printReviewReceipt(r changeintel.Receipt) {
+	headLabel := r.Head.Ref
+	if headLabel == "" {
+		headLabel = "working tree"
 	}
-	var files []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, line)
+
+	fmt.Printf("review: base=%s head=%s changed_files=%d blast_radius=%d risk=%.2f\n",
+		r.Base.Ref, headLabel, r.Impact.ChangedFiles, r.Impact.BlastRadius, r.Risk.Score)
+	if !r.Impact.BaseAvailable {
+		fmt.Println("warning: base ref unavailable — changed files reported as added")
+	}
+
+	if len(r.Entities) > 0 {
+		fmt.Println("\nentities:")
+		for _, e := range r.Entities {
+			fmt.Printf("  %-9s %s %s cyc=%+d cog=%+d\n", e.Status, e.File, e.Name, e.Delta.Cyclomatic, e.Delta.Cognitive)
 		}
 	}
-	sort.Strings(files)
-	return files, nil
-}
 
-func reviewFileToPackage(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) <= 1 {
-		return "."
+	changedAPI := len(r.APISurface.Added) + len(r.APISurface.Removed) + len(r.APISurface.Changed)
+	if changedAPI > 0 {
+		fmt.Printf("\npublic API changes: %d\n", changedAPI)
+		for _, c := range r.APISurface.Added {
+			fmt.Printf("  + %s %s\n", c.File, c.Name)
+		}
+		for _, c := range r.APISurface.Removed {
+			fmt.Printf("  - %s %s\n", c.File, c.Name)
+		}
+		for _, c := range r.APISurface.Changed {
+			fmt.Printf("  ~ %s %s (%s)\n", c.File, c.Name, c.Change)
+		}
 	}
-	return strings.Join(parts[:len(parts)-1], "/")
+
+	if len(r.Boundaries.Introduced) > 0 {
+		fmt.Printf("\nboundary violations introduced: %d\n", len(r.Boundaries.Introduced))
+		for _, v := range r.Boundaries.Introduced {
+			fmt.Printf("  %s\n", v.Message)
+		}
+	}
+	if len(r.Boundaries.Resolved) > 0 {
+		fmt.Printf("\nboundary violations resolved: %d\n", len(r.Boundaries.Resolved))
+	}
+
+	if len(r.Capabilities.Introduced) > 0 {
+		fmt.Printf("\ncapabilities introduced: %d\n", len(r.Capabilities.Introduced))
+		for _, c := range r.Capabilities.Introduced {
+			fmt.Printf("  %s (%s, %s)\n", c.Name, c.Category, c.Confidence)
+		}
+	}
+	if len(r.Capabilities.Resolved) > 0 {
+		fmt.Printf("\ncapabilities resolved: %d\n", len(r.Capabilities.Resolved))
+	}
 }
