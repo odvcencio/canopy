@@ -977,6 +977,115 @@ func work() {
 	}
 }
 
+// TestRunContextBundleMode verifies the new pkg/contextbundle-backed path
+// (spec 10.13): setting --mode/--task/--symbol routes through the bundle
+// service instead of the legacy line/semantic packer.
+func TestRunContextBundleMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "main.go")
+	source := `package sample
+
+func Greet(name string) string {
+	return formatGreeting(name)
+}
+
+func formatGreeting(name string) string {
+	return "Hello, " + name + "!"
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	originalStdout := os.Stdout
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe failed: %v", err)
+	}
+	os.Stdout = writePipe
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	runErr := runContext([]string{
+		"main.go",
+		"--root", tmpDir,
+		"--mode", "implement",
+		"--task", "improve the greeting",
+		"--symbol", "Greet",
+		"--tokens", "1500",
+	})
+	_ = writePipe.Close()
+	if runErr != nil {
+		t.Fatalf("runContext returned error: %v", runErr)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(readPipe); err != nil {
+		t.Fatalf("ReadFrom failed: %v", err)
+	}
+	text := output.String()
+	for _, expected := range []string{"## Focus implementation", "evidence:item=", "func Greet(name string) string", "## Omissions and receipt"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected bundle-mode output to contain %q, got:\n%s", expected, text)
+		}
+	}
+	// Legacy-only report fields must not appear: bundle mode renders
+	// Markdown evidence blocks, not the "file:"/"snippet [" line format.
+	for _, notExpected := range []string{"\nfile: ", "\nsnippet ["} {
+		if strings.Contains(text, notExpected) {
+			t.Fatalf("did not expect legacy report format %q in bundle-mode output:\n%s", notExpected, text)
+		}
+	}
+}
+
+// TestRunContextBundleMode_LegacyRollback verifies the CANOPY_CONTEXT_LEGACY
+// rollback switch forces the legacy path even when bundle-mode flags are
+// set (spec PR 2 rollback: "Compatibility adapter can switch back to old
+// implementation via flag").
+func TestRunContextBundleMode_LegacyRollback(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "main.go")
+	source := "package sample\n\nfunc Greet(name string) string {\n\treturn \"hi \" + name\n}\n"
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	t.Setenv("CANOPY_CONTEXT_LEGACY", "1")
+
+	originalStdout := os.Stdout
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe failed: %v", err)
+	}
+	os.Stdout = writePipe
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	runErr := runContext([]string{
+		"main.go",
+		"--root", tmpDir,
+		"--mode", "implement",
+		"--symbol", "Greet",
+	})
+	_ = writePipe.Close()
+	if runErr != nil {
+		t.Fatalf("runContext returned error: %v", runErr)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(readPipe); err != nil {
+		t.Fatalf("ReadFrom failed: %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "file: main.go") {
+		t.Fatalf("expected legacy report format under rollback, got:\n%s", text)
+	}
+	if strings.Contains(text, "evidence:item=") {
+		t.Fatalf("did not expect bundle-mode output under rollback, got:\n%s", text)
+	}
+}
+
 func TestRunChunk(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourcePath := filepath.Join(tmpDir, "main.go")
