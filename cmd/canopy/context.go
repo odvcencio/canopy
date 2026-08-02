@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"m31labs.dev/canopy/internal/contextpack"
+	"m31labs.dev/canopy/pkg/contextbundle"
 	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/xref"
 )
@@ -23,12 +28,76 @@ func newContextCmd() *cobra.Command {
 	var jsonOutput bool
 	var concept string
 
+	// Bundle-mode flags (spec 10.13). Setting any of these routes the
+	// request through pkg/contextbundle instead of the legacy line/semantic
+	// packer; leaving them all unset keeps `canopy search context` exactly
+	// as it was.
+	var bundleMode string
+	var bundleTask string
+	var bundleFocus string
+	var bundleSymbol string
+	var bundleManifestPath string
+	var bundleReceiptPath string
+
 	cmd := &cobra.Command{
-		Use:     "context <file>",
+		Use:     "context [file]",
 		Aliases: []string{"gtscontext"},
-		Short:   "Pack focused code context for a file and line",
+		Short:   "Pack focused code context for a file and line, or build a task-conditioned context bundle",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if wantsBundleMode(bundleMode, bundleTask, bundleFocus, bundleSymbol) && !contextpack.UseLegacy() {
+				idx, err := loadOrBuild(cmd, cachePath, rootPath, noCache)
+				if err != nil {
+					return err
+				}
+				generator, _ := cmd.Flags().GetString("generator")
+				includeGenerated, _ := cmd.Flags().GetBool("include-generated")
+				if generator != "" {
+					idx = idx.FilterByGenerator(generator)
+					includeGenerated = true
+				}
+
+				var filePath string
+				if len(args) > 0 {
+					filePath = args[0]
+				}
+				selectors, err := bundleSelectors(filePath, bundleFocus, bundleSymbol)
+				if err != nil {
+					return err
+				}
+
+				opts := contextpack.BundleOptions{
+					Mode:             contextbundle.TaskKind(bundleMode),
+					Task:             bundleTask,
+					Tokens:           tokens,
+					Focus:            selectors,
+					IncludeGenerated: includeGenerated,
+				}
+				result, err := contextpack.BuildBundle(context.Background(), idx, resolveContextRoot(rootPath), opts)
+				if err != nil {
+					return err
+				}
+
+				if bundleManifestPath != "" {
+					if err := writeJSONFile(bundleManifestPath, result.Manifest); err != nil {
+						return fmt.Errorf("writing manifest: %w", err)
+					}
+				}
+				if bundleReceiptPath != "" {
+					if err := writeJSONFile(bundleReceiptPath, result.Receipt); err != nil {
+						return fmt.Errorf("writing receipt: %w", err)
+					}
+				}
+				if jsonOutput {
+					return emitJSON(struct {
+						Receipt  contextbundle.Receipt  `json:"receipt"`
+						Manifest contextbundle.Manifest `json:"manifest"`
+					}{Receipt: result.Receipt, Manifest: result.Manifest})
+				}
+				fmt.Print(string(result.Content))
+				return nil
+			}
+
 			// Concept mode: search symbols and pack context around matches.
 			if concept != "" {
 				idx, err := loadOrBuild(cmd, cachePath, rootPath, noCache)
@@ -122,6 +191,13 @@ func newContextCmd() *cobra.Command {
 	cmd.Flags().IntVar(&semanticDepth, "semantic-depth", 1, "dependency traversal depth in semantic mode")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
 	cmd.Flags().StringVar(&concept, "concept", "", "search concept query: find symbols matching this term and pack related context")
+
+	cmd.Flags().StringVar(&bundleMode, "mode", "", "bundle mode: explore|implement|debug|review|test|commit|resume (enables bundle mode)")
+	cmd.Flags().StringVar(&bundleTask, "task", "", "bundle mode: free-text description of the task (enables bundle mode)")
+	cmd.Flags().StringVar(&bundleFocus, "focus", "", "bundle mode: path:line to focus on (enables bundle mode)")
+	cmd.Flags().StringVar(&bundleSymbol, "symbol", "", "bundle mode: symbol name to focus on, combined with [file] or --focus (enables bundle mode)")
+	cmd.Flags().StringVar(&bundleManifestPath, "manifest", "", "bundle mode: write the projection manifest as JSON to this path")
+	cmd.Flags().StringVar(&bundleReceiptPath, "receipt", "", "bundle mode: write the context receipt as JSON to this path")
 	return cmd
 }
 
@@ -246,4 +322,66 @@ func runContext(args []string) error {
 	cmd.SilenceErrors = true
 	cmd.SetArgs(args)
 	return cmd.Execute()
+}
+
+// wantsBundleMode reports whether any bundle-mode flag was set (spec
+// 10.13). Leaving all of them unset keeps the legacy `canopy search
+// context <file>` path byte-for-byte unchanged.
+func wantsBundleMode(mode, task, focus, symbol string) bool {
+	return mode != "" || task != "" || focus != "" || symbol != ""
+}
+
+// bundleSelectors builds the contextbundle.Selector list for --focus
+// path:line and --symbol Name (spec 10.13). --symbol combines with the
+// positional file argument, or with --focus's path when --focus is also
+// given.
+func bundleSelectors(filePath, focus, symbol string) ([]contextbundle.Selector, error) {
+	var selectors []contextbundle.Selector
+
+	focusPath := filePath
+	focusLine := 0
+	if focus != "" {
+		idx := strings.LastIndex(focus, ":")
+		if idx <= 0 || idx == len(focus)-1 {
+			return nil, fmt.Errorf("--focus must be path:line, got %q", focus)
+		}
+		focusPath = focus[:idx]
+		line, err := strconv.Atoi(focus[idx+1:])
+		if err != nil {
+			return nil, fmt.Errorf("--focus line must be an integer, got %q", focus)
+		}
+		focusLine = line
+	}
+
+	if symbol != "" {
+		if focusPath == "" {
+			return nil, fmt.Errorf("--symbol requires a file argument or --focus path:line")
+		}
+		selectors = append(selectors, contextbundle.Selector{File: focusPath, Symbol: symbol, Required: true})
+		return selectors, nil
+	}
+
+	if focus != "" {
+		selectors = append(selectors, contextbundle.Selector{File: focusPath, Line: focusLine, Required: true})
+	} else if filePath != "" {
+		selectors = append(selectors, contextbundle.Selector{File: filePath, Required: true})
+	}
+	return selectors, nil
+}
+
+// resolveContextRoot normalizes the --root flag the same way loadOrBuild
+// does, so the snapshot Canopy computes matches the index it just loaded.
+func resolveContextRoot(rootPath string) string {
+	if strings.TrimSpace(rootPath) == "" {
+		return "."
+	}
+	return rootPath
+}
+
+func writeJSONFile(path string, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
