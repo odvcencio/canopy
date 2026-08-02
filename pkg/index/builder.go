@@ -107,7 +107,7 @@ func newLazyParser(entry grammars.LangEntry) *lazyParser {
 func (lp *lazyParser) init() {
 	// Infer the tags query on demand (loads the grammar for this one language).
 	entry := lp.entry
-	entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+	entry.TagsQuery = treesitter.ResolveTagsQuery(entry)
 	if strings.TrimSpace(entry.TagsQuery) == "" {
 		entry.TagsQuery = fallbackTagsQueries[entry.Name]
 	}
@@ -178,6 +178,85 @@ func normalizeExtension(extension string) string {
 func (b *Builder) BuildPath(path string) (*model.Index, error) {
 	idx, _, err := b.BuildPathIncrementalWithOptions(context.Background(), path, nil, BuildOptions{})
 	return idx, err
+}
+
+// BuildPaths builds one index from selected paths under root.
+// Missing paths are ignored because a git diff can contain deleted files.
+func (b *Builder) BuildPaths(ctx context.Context, root string, paths []string) (*model.Index, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	root, info, err := resolveBuildTarget(root)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("selected-path index root is not a directory: %s", root)
+	}
+
+	selected := append([]string(nil), paths...)
+	sort.Strings(selected)
+	filesByPath := map[string]model.FileSummary{}
+	errorsByPath := map[string]model.ParseError{}
+	seen := make(map[string]struct{}, len(selected))
+	for _, path := range selected {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return snapshotIndex(root, filesByPath, errorsByPath), ctxErr
+		}
+		target := filepath.Clean(path)
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(root, filepath.FromSlash(target))
+		}
+		relPath, relErr := filepath.Rel(root, target)
+		if relErr != nil {
+			return nil, fmt.Errorf("resolve selected path %q: %w", path, relErr)
+		}
+		relPath = filepath.ToSlash(relPath)
+		if relPath == ".." || strings.HasPrefix(relPath, "../") {
+			return nil, fmt.Errorf("selected path is outside the index root: %s", path)
+		}
+		if _, exists := seen[relPath]; exists {
+			continue
+		}
+		seen[relPath] = struct{}{}
+		if shouldSkipIndexPath(root, target, false, b.ignore) {
+			continue
+		}
+
+		fileInfo, statErr := os.Lstat(target)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return nil, statErr
+		}
+		if fileInfo.IsDir() || fileInfo.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		single, _, buildErr := b.buildSingleFileWithOptions(ctx, target, fileInfo, nil, BuildOptions{})
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		for _, summary := range single.Files {
+			summary.Path = relPath
+			for index := range summary.Symbols {
+				summary.Symbols[index].File = relPath
+			}
+			for index := range summary.References {
+				summary.References[index].File = relPath
+			}
+			filesByPath[relPath] = summary
+		}
+		for _, parseErr := range single.Errors {
+			parseErr.Path = relPath
+			errorsByPath[relPath] = parseErr
+		}
+	}
+
+	idx := snapshotIndex(root, filesByPath, errorsByPath)
+	idx.ConfigHashes = b.configHashes
+	return idx, nil
 }
 
 func (b *Builder) BuildPathIncremental(ctx context.Context, path string, previous *model.Index) (*model.Index, BuildStats, error) {
@@ -255,9 +334,13 @@ func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.F
 	}
 
 	readyByExt := map[string]bool{}
-	// DefaultPolicy uses GOMAXPROCS for concurrency. Lazy grammar loading
-	// (sync.Once per language) prevents the OOM spikes that originally
-	// motivated serial parsing. GTS_MAX_CONCURRENT env var still overrides.
+	// Bound the default worker count because each in-flight parse can retain a
+	// large tree and grammar state. Explicit GTS_MAX_CONCURRENT values still
+	// override this conservative index-build default.
+	if strings.TrimSpace(os.Getenv("GTS_MAX_CONCURRENT")) == "" && policy.MaxConcurrent > 2 {
+		policy.MaxConcurrent = 2
+		policy.ChannelBuffer = policy.MaxConcurrent + 1
+	}
 	policy.ShouldParse = func(absPath string, size int64, modTime time.Time) bool {
 		if shouldSkipIndexPath(root, absPath, false, b.ignore) {
 			return false
@@ -306,7 +389,8 @@ func (b *Builder) buildWalkPolicy(root string, previousByPath map[string]model.F
 			// Detect by filename only (nil source). Returns non-nil for
 			// filename-pattern matches without needing file contents.
 			info := b.detector.Detect(relPath, nil)
-			return info != nil && info.Reason == "filename"
+			return info != nil && info.Reason == "filename" ||
+				generated.ShouldInspectBeforeParse(relPath, size)
 		}
 	}
 
@@ -401,20 +485,46 @@ func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, files
 	}
 
 	// Fast path: file was read but tree-sitter parse was skipped
-	// (SkipTreeParse hook returned true). Use regex extraction.
+	// (SkipTreeParse hook returned true). Use regex extraction for generated
+	// files. Parse a false-positive preflight candidate normally.
 	if file.Tree == nil && file.IsRead && file.Err == nil {
-		summary := generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+		var genInfo *model.GeneratedInfo
+		if b.detector != nil {
+			genInfo = b.detector.Detect(relPath, file.Source)
+		}
+		var (
+			summary  model.FileSummary
+			parseErr error
+		)
+		if genInfo != nil {
+			summary = generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+		} else {
+			summary, parseErr = parser.Parse(file.Path, file.Source)
+		}
+		if parseErr != nil {
+			parseFailure := model.ParseError{Path: relPath, Error: parseErr.Error()}
+			errorsByPath[relPath] = parseFailure
+			emitBuildEvent(opts, BuildEvent{
+				Kind:       BuildEventError,
+				Path:       relPath,
+				ParseError: parseFailure,
+				Stats:      *stats,
+			})
+			file.Close()
+			return
+		}
 		summary.Path = relPath
 		summary.SizeBytes = file.Size
 		summary.Language = parser.Language()
-		if b.detector != nil {
-			summary.Generated = b.detector.Detect(relPath, file.Source)
-		}
+		summary.Generated = genInfo
 		if fi, statErr := os.Stat(file.Path); statErr == nil {
 			summary.ModTimeUnixNano = fi.ModTime().UnixNano()
 		}
 		for i := range summary.Symbols {
 			summary.Symbols[i].File = relPath
+		}
+		for i := range summary.References {
+			summary.References[i].File = relPath
 		}
 		file.Close()
 		filesByPath[relPath] = summary
@@ -500,15 +610,17 @@ func parseIndexedFile(parser lang.Parser, path string, source []byte, tree *gotr
 	return parser.Parse(path, source)
 }
 
+const defaultIndexGCEvery = 32
+
 func indexGCEvery() int {
 	if raw := strings.TrimSpace(os.Getenv("CANOPY_INDEX_GC_EVERY")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			return 0
+			return defaultIndexGCEvery
 		}
 		return n
 	}
-	return 0
+	return defaultIndexGCEvery
 }
 
 func parserReadyForIndex(parser lang.Parser) bool {

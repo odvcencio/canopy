@@ -785,6 +785,85 @@ func main() {
 	}
 }
 
+// TestRunDeadResolvesAssignmentContextCalls is a regression test for the
+// gotreesitter parent-link field-matching bug (fixed upstream in a3ed404f,
+// "fix(query): Use parent links in field matching", gotreesitter v0.20.0+).
+//
+// The old query engine dropped `function:`-field call captures nested inside
+// assignment RHS expressions such as `x := f()`, `_ = f()`, and
+// `for range f() {}`, so callees invoked only in those contexts were
+// misreported as unreferenced and showed up as false-positive dead code.
+// This test builds a real index (exercising the actual gotreesitter tags
+// query, not a hand-built xref.Graph) and asserts that none of those three
+// call shapes are misclassified as dead, while a genuinely uncalled sibling
+// function still is — proving dead-code detection itself is still active.
+func TestRunDeadResolvesAssignmentContextCalls(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourcePath := filepath.Join(tmpDir, "main.go")
+	source := `package sample
+
+func assignTarget() int { return 1 }
+func blankTarget() int { return 2 }
+func rangeTarget() []int { return nil }
+func unused() {}
+
+func caller() {
+	x := assignTarget()
+	_ = blankTarget()
+	for range rangeTarget() {
+	}
+	_ = x
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	originalStdout := os.Stdout
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe failed: %v", err)
+	}
+	os.Stdout = writePipe
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	runErr := runDead([]string{
+		tmpDir,
+		"--kind",
+		"function",
+	})
+	_ = writePipe.Close()
+	if runErr != nil {
+		t.Fatalf("runDead returned error: %v", runErr)
+	}
+
+	var output bytes.Buffer
+	if _, err := output.ReadFrom(readPipe); err != nil {
+		t.Fatalf("ReadFrom failed: %v", err)
+	}
+	text := output.String()
+
+	for _, calledOnlyInAssignmentContext := range []string{"assignTarget", "blankTarget", "rangeTarget"} {
+		if strings.Contains(text, calledOnlyInAssignmentContext) {
+			t.Errorf("callee %q is called (x := f(), _ = f(), or range f()) but was reported dead:\n%s",
+				calledOnlyInAssignmentContext, text)
+		}
+	}
+
+	// Positive control: a function nobody calls must still be reported dead,
+	// which proves this test would fail loudly if dead-code detection itself
+	// regressed to a no-op instead of silently passing.
+	if !strings.Contains(text, "unused") {
+		t.Errorf("expected genuinely dead function %q to be reported, got:\n%s", "unused", text)
+	}
+
+	if !strings.Contains(text, "dead: kind=function scanned=5 matches=2") {
+		t.Errorf("expected exactly 2 dead functions (unused, caller) out of 5 scanned, got:\n%s", text)
+	}
+}
+
 func TestRunQueryCount(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourcePath := filepath.Join(tmpDir, "main.go")

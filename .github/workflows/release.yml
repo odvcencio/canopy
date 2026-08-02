@@ -4,12 +4,58 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing semantic-version tag to release"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate tag and vanity module path
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "release must run from a semantic-version tag" >&2
+            exit 1
+          fi
+          test "$(git describe --tags --exact-match)" = "${RELEASE_TAG}"
+          test "$(go list -m)" = "m31labs.dev/canopy"
+          curl --fail --silent --show-error 'https://m31labs.dev/canopy?go-get=1' \
+            | grep -F 'm31labs.dev/canopy git https://github.com/odvcencio/canopy'
+
+      - name: Test, vet, and build
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          CGO_ENABLED=0 go build ./cmd/canopy ./cmd/canopyls
+
   build:
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -18,6 +64,8 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-go@v5
         with:
@@ -30,15 +78,16 @@ jobs:
         run: |
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
-          go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
+          go build -ldflags "-s -w -X main.version=${RELEASE_TAG}" \
             -o "canopy-${GOOS}-${GOARCH}${EXT}" ./cmd/canopy
-          go build -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
+          go build -ldflags "-s -w -X main.version=${RELEASE_TAG}" \
             -o "canopyls-${GOOS}-${GOARCH}${EXT}" ./cmd/canopyls
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          retention-days: 7
           path: |
             canopy-*
             canopyls-*
@@ -46,7 +95,12 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -60,8 +114,28 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             artifacts/canopy-*
             artifacts/canopyls-*
             artifacts/checksums.txt
           generate_release_notes: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify vanity-path install
+        env:
+          GOPROXY: direct
+          GONOSUMDB: m31labs.dev
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if go install "m31labs.dev/canopy/cmd/canopy@${RELEASE_TAG}"; then
+              canopy --version
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1

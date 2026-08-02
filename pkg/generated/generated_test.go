@@ -2,7 +2,10 @@ package generated
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"m31labs.dev/canopy/pkg/model"
 )
 
 func TestDetect_FilenamePattern(t *testing.T) {
@@ -52,6 +55,52 @@ func TestDetect_NoMatch(t *testing.T) {
 	info := d.Detect("main.go", src)
 	if info != nil {
 		t.Fatalf("expected nil for human-written file, got %+v", info)
+	}
+}
+
+func TestDetectMinifiedBundle(t *testing.T) {
+	minified := []byte("function a(){" + strings.Repeat("x", minifiedBundleMinBytes) + "}")
+	info := DetectMinifiedBundle("dist/app.js", minified)
+	if info == nil || info.Generator != "bundler" || info.Reason != "minified" {
+		t.Fatalf("DetectMinifiedBundle() = %+v, want bundler minified", info)
+	}
+
+	formatted := []byte(strings.Repeat("const value = 1;\n", minifiedBundleMinBytes/17+1))
+	if info := DetectMinifiedBundle("src/app.js", formatted); info != nil {
+		t.Fatalf("formatted JavaScript classified as minified: %+v", info)
+	}
+	if info := DetectMinifiedBundle("dist/app.go", minified); info != nil {
+		t.Fatalf("non-JavaScript source classified as minified: %+v", info)
+	}
+	if !ShouldInspectBeforeParse("dist/app.js", int64(len(minified))) {
+		t.Fatal("large JavaScript did not request content preflight")
+	}
+	if ShouldInspectBeforeParse("src/app.js", minifiedBundleMinBytes-1) {
+		t.Fatal("small JavaScript requested content preflight")
+	}
+}
+
+func TestClassifyMinifiedBundlesSupportsLegacyIndexes(t *testing.T) {
+	original := &model.Index{Files: []model.FileSummary{{
+		Path:      "dist/app.js",
+		SizeBytes: minifiedBundleMinBytes,
+		Symbols: []model.Symbol{{
+			Kind:      "function_definition",
+			Name:      "a",
+			StartLine: 1,
+			EndLine:   1,
+		}},
+	}}}
+
+	classified := ClassifyMinifiedBundles(original)
+	if classified == original {
+		t.Fatal("ClassifyMinifiedBundles() returned the unclassified index")
+	}
+	if classified.Files[0].Generated == nil || classified.Files[0].Generated.Generator != "bundler" {
+		t.Fatalf("classified file = %+v, want bundler metadata", classified.Files[0])
+	}
+	if original.Files[0].Generated != nil {
+		t.Fatal("ClassifyMinifiedBundles() mutated the source index")
 	}
 }
 

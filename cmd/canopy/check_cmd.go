@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -53,27 +54,29 @@ type checkResult struct {
 	Violations   int              `json:"violations"`
 	Base         string           `json:"base,omitempty"`
 	ChangedFiles int              `json:"changed_files,omitempty"`
+	IndexScope   string           `json:"index_scope,omitempty"`
 	Details      []checkViolation `json:"details,omitempty"`
 }
 
 func newCheckCmd() *cobra.Command {
 	var (
-		cachePath       string
-		noCache         bool
-		jsonOutput      bool
-		format          string
-		base            string
-		maxCyclomatic   int
-		maxCognitive    int
-		maxLines        int
-		maxGeneratedPct int
-		maxInstability     float64
-		maxDistance         float64
-		maxLCOM            int
-		maxFields          int
-		maxInterfaceWidth  int
-		maxSmellsError     int
-		maxRisk            float64
+		cachePath         string
+		noCache           bool
+		jsonOutput        bool
+		format            string
+		base              string
+		maxCyclomatic     int
+		maxCognitive      int
+		maxLines          int
+		maxGeneratedPct   int
+		maxInstability    float64
+		maxDistance       float64
+		maxLCOM           int
+		maxFields         int
+		maxInterfaceWidth int
+		maxSmellsError    int
+		maxRisk           float64
+		timeout           time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -112,7 +115,9 @@ func newCheckCmd() *cobra.Command {
 				}
 			}
 
-			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
+			stopPhase := startAnalysisPhase("loading or building the structural index")
+			idx, err := loadOrBuildCheck(cmd, cachePath, target, noCache, base)
+			stopPhase()
 			if err != nil {
 				return err
 			}
@@ -124,7 +129,12 @@ func newCheckCmd() *cobra.Command {
 
 			// Checks 1-3 share a single complexity report.
 			if maxCyclomatic > 0 || maxCognitive > 0 || maxLines > 0 {
+				stopPhase = startAnalysisPhase("computing function complexity")
 				report, analyzeErr := complexity.Analyze(analysisIdx, analysisIdx.Root, complexity.Options{})
+				stopPhase()
+				if analyzeErr != nil {
+					return fmt.Errorf("complexity analysis: %w", analyzeErr)
+				}
 
 				// Check 1: Cyclomatic complexity.
 				if maxCyclomatic > 0 {
@@ -419,6 +429,7 @@ func newCheckCmd() *cobra.Command {
 				Violations:   len(violations),
 				Base:         base,
 				ChangedFiles: numChanged,
+				IndexScope:   analysisIndexScope(cmd),
 				Details:      violations,
 			}
 			if len(violations) > 0 {
@@ -458,7 +469,7 @@ func newCheckCmd() *cobra.Command {
 				}
 			default:
 				if base != "" {
-					fmt.Printf("check: %s (%d checks, %d violations, base=%s, %d files changed)\n", result.Status, result.Checks, result.Violations, base, numChanged)
+					fmt.Printf("check: %s (%d checks, %d violations, base=%s, %d files changed, index_scope=%s)\n", result.Status, result.Checks, result.Violations, base, numChanged, result.IndexScope)
 				} else {
 					fmt.Printf("check: %s (%d checks, %d violations)\n", result.Status, result.Checks, result.Violations)
 				}
@@ -507,5 +518,7 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxInterfaceWidth, "max-interface-width", 0, "max interface width (0 to disable)")
 	cmd.Flags().IntVar(&maxSmellsError, "max-smells-error", 0, "max error-severity structural smells (0 to disable)")
 	cmd.Flags().Float64Var(&maxRisk, "max-risk", 0, "max composite risk score per function 0.0-1.0 (0 to disable)")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultAnalysisTimeout, "hard runtime limit, capped at 4m45s")
+	cmd.RunE = boundedAnalysisRun(&timeout, cmd.RunE)
 	return cmd
 }

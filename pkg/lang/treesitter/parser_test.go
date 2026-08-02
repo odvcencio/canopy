@@ -882,7 +882,7 @@ func findEntryByExtension(tb testing.TB, extension string) grammars.LangEntry {
 	for _, entry := range grammars.AllLanguages() {
 		for _, ext := range entry.Extensions {
 			if ext == extension {
-				entry.TagsQuery = grammars.ResolveTagsQuery(entry)
+				entry.TagsQuery = ResolveTagsQuery(entry)
 				if strings.TrimSpace(entry.TagsQuery) == "" {
 					entry.TagsQuery = testFallbackTagsQueries[entry.Name]
 				}

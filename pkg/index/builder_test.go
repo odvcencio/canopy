@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -43,6 +44,72 @@ func TestMain() {}
 	}
 	if idx.Files[0].Path != "main.go" {
 		t.Fatalf("expected relative path main.go, got %q", idx.Files[0].Path)
+	}
+}
+
+func TestBuildPathsIndexesOnlySelectedFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll nested failed: %v", err)
+	}
+	write := func(path, source string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(tmpDir, path), []byte(source), 0o644); err != nil {
+			t.Fatalf("WriteFile %s failed: %v", path, err)
+		}
+	}
+	write("selected.go", "package sample\n\nfunc Selected() {}\n")
+	write("ignored.go", "package sample\n\nfunc Ignored() {}\n")
+	write("nested/also_selected.go", "package nested\n\nfunc AlsoSelected() {}\n")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(filepath.Join(tmpDir, "ignored.go"), filepath.Join(tmpDir, "linked.go")); err != nil {
+			t.Fatalf("Symlink linked.go failed: %v", err)
+		}
+	}
+
+	builder := NewBuilder()
+	idx, err := builder.BuildPaths(context.Background(), tmpDir, []string{
+		"nested/also_selected.go",
+		"selected.go",
+		"selected.go",
+		"deleted.go",
+		"linked.go",
+	})
+	if err != nil {
+		t.Fatalf("BuildPaths returned error: %v", err)
+	}
+	if got, want := idx.FileCount(), 2; got != want {
+		t.Fatalf("BuildPaths file count = %d, want %d", got, want)
+	}
+	gotPaths := []string{idx.Files[0].Path, idx.Files[1].Path}
+	wantPaths := []string{"nested/also_selected.go", "selected.go"}
+	if !reflect.DeepEqual(gotPaths, wantPaths) {
+		t.Fatalf("BuildPaths paths = %v, want %v", gotPaths, wantPaths)
+	}
+	for _, file := range idx.Files {
+		for _, symbol := range file.Symbols {
+			if symbol.File != file.Path {
+				t.Fatalf("symbol file = %q, want %q", symbol.File, file.Path)
+			}
+		}
+	}
+}
+
+func TestBuildPathsRejectsOutsideRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	builder := NewBuilder()
+	if _, err := builder.BuildPaths(context.Background(), tmpDir, []string{"../outside.go"}); err == nil {
+		t.Fatal("BuildPaths accepted a path outside the root")
+	}
+}
+
+func TestBuildPathsHonorsCancelledContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	builder := NewBuilder()
+	if _, err := builder.BuildPaths(ctx, tmpDir, []string{"selected.go"}); err != context.Canceled {
+		t.Fatalf("BuildPaths error = %v, want context.Canceled", err)
 	}
 }
 
@@ -91,6 +158,44 @@ func TestBuildWalkPolicy_UsesShouldSkipDirForDirectoryPruning(t *testing.T) {
 	}
 	if policy.ShouldSkipDir(filepath.Join(root, "internal")) {
 		t.Fatal("unexpected skip for unrelated directory")
+	}
+}
+
+func TestBuildWalkPolicy_BoundsDefaultConcurrency(t *testing.T) {
+	t.Setenv("GTS_MAX_CONCURRENT", "")
+	policy := (&Builder{}).buildWalkPolicy(filepath.Clean("/repo"), nil)
+	want := runtime.GOMAXPROCS(0)
+	if want > 2 {
+		want = 2
+	}
+	if policy.MaxConcurrent != want {
+		t.Fatalf("MaxConcurrent = %d, want %d", policy.MaxConcurrent, want)
+	}
+	if policy.ChannelBuffer != want+1 {
+		t.Fatalf("ChannelBuffer = %d, want %d", policy.ChannelBuffer, want+1)
+	}
+
+	t.Setenv("GTS_MAX_CONCURRENT", "4")
+	policy = (&Builder{}).buildWalkPolicy(filepath.Clean("/repo"), nil)
+	if policy.MaxConcurrent != 4 {
+		t.Fatalf("explicit MaxConcurrent = %d, want 4", policy.MaxConcurrent)
+	}
+}
+
+func TestIndexGCEvery_DefaultAndOverrides(t *testing.T) {
+	t.Setenv("CANOPY_INDEX_GC_EVERY", "")
+	if got := indexGCEvery(); got != defaultIndexGCEvery {
+		t.Fatalf("default indexGCEvery = %d, want %d", got, defaultIndexGCEvery)
+	}
+
+	t.Setenv("CANOPY_INDEX_GC_EVERY", "0")
+	if got := indexGCEvery(); got != 0 {
+		t.Fatalf("disabled indexGCEvery = %d, want 0", got)
+	}
+
+	t.Setenv("CANOPY_INDEX_GC_EVERY", "invalid")
+	if got := indexGCEvery(); got != defaultIndexGCEvery {
+		t.Fatalf("invalid indexGCEvery = %d, want %d", got, defaultIndexGCEvery)
 	}
 }
 

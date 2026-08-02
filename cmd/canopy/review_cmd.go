@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,7 +36,8 @@ type reviewReport struct {
 	Base            string                  `json:"base"`
 	ChangedFiles    int                     `json:"changed_files"`
 	Files           []string                `json:"files"`
-	ComplexityDelta []reviewComplexityDelta  `json:"complexity_delta,omitempty"`
+	IndexScope      string                  `json:"index_scope"`
+	ComplexityDelta []reviewComplexityDelta `json:"complexity_delta,omitempty"`
 	BoundaryIssues  []boundaries.Violation  `json:"boundary_issues,omitempty"`
 	NewCapabilities []reviewCapaMatch       `json:"new_capabilities,omitempty"`
 	BlastRadius     int                     `json:"blast_radius"`
@@ -47,6 +49,7 @@ func newReviewCmd() *cobra.Command {
 		noCache    bool
 		base       string
 		jsonOutput bool
+		timeout    time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -69,7 +72,7 @@ func newReviewCmd() *cobra.Command {
 				return err
 			}
 			if len(changed) == 0 {
-				report := reviewReport{Base: base, ChangedFiles: 0, Files: []string{}}
+				report := reviewReport{Base: base, ChangedFiles: 0, Files: []string{}, IndexScope: "changed"}
 				if jsonOutput {
 					return emitJSON(report)
 				}
@@ -82,7 +85,9 @@ func newReviewCmd() *cobra.Command {
 				changedSet[f] = true
 			}
 
-			idx, err := loadOrBuild(cmd, cachePath, target, noCache)
+			stopPhase := startAnalysisPhase("loading or building the structural index")
+			idx, changedScoped, err := loadOrBuildChanged(cmd, cachePath, target, noCache, changed)
+			stopPhase()
 			if err != nil {
 				return err
 			}
@@ -92,13 +97,30 @@ func newReviewCmd() *cobra.Command {
 				Base:         base,
 				ChangedFiles: len(changed),
 				Files:        changed,
+				IndexScope:   "repository",
 			}
+			if changedScoped {
+				report.IndexScope = "changed"
+			}
+			var (
+				reviewGraph      xref.Graph
+				reviewGraphReady bool
+			)
 
 			// 1. Complexity for changed files.
+			stopPhase = startAnalysisPhase("computing function complexity")
 			compReport, compErr := complexity.Analyze(idx, idx.Root, complexity.Options{})
-			if compErr == nil && compReport != nil {
+			stopPhase()
+			if compErr != nil {
+				return fmt.Errorf("complexity analysis: %w", compErr)
+			}
+			if compReport != nil {
+				stopPhase = startAnalysisPhase("building cross-references")
 				graph, xrefErr := xref.Build(idx)
+				stopPhase()
 				if xrefErr == nil {
+					reviewGraph = graph
+					reviewGraphReady = true
 					complexity.EnrichWithXref(compReport, graph)
 				}
 				for _, fn := range compReport.Functions {
@@ -159,11 +181,20 @@ func newReviewCmd() *cobra.Command {
 			}
 
 			// 4. Blast radius.
-			impactResult, impactErr := impact.Analyze(idx, impact.Options{
+			impactOpts := impact.Options{
 				DiffRef:  base,
 				Root:     target,
 				MaxDepth: 5,
-			})
+			}
+			var impactResult *impact.Result
+			var impactErr error
+			stopPhase = startAnalysisPhase("computing the change blast radius")
+			if reviewGraphReady {
+				impactResult, impactErr = impact.AnalyzeWithGraph(idx, reviewGraph, impactOpts)
+			} else {
+				impactResult, impactErr = impact.Analyze(idx, impactOpts)
+			}
+			stopPhase()
 			if impactErr == nil && impactResult != nil {
 				report.BlastRadius = impactResult.TotalAffected
 			}
@@ -173,7 +204,7 @@ func newReviewCmd() *cobra.Command {
 			}
 
 			// Text output.
-			fmt.Printf("review: base=%s changed_files=%d blast_radius=%d\n", report.Base, report.ChangedFiles, report.BlastRadius)
+			fmt.Printf("review: base=%s changed_files=%d index_scope=%s blast_radius=%d\n", report.Base, report.ChangedFiles, report.IndexScope, report.BlastRadius)
 			if len(report.ComplexityDelta) > 0 {
 				fmt.Println("\ncomplexity in changed files:")
 				for _, cd := range report.ComplexityDelta {
@@ -200,6 +231,8 @@ func newReviewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noCache, "no-cache", false, "skip auto-discovery of cached index")
 	cmd.Flags().StringVar(&base, "base", "", "git ref to diff against (required)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "emit JSON output")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultAnalysisTimeout, "hard runtime limit, capped at 4m45s")
+	cmd.RunE = boundedAnalysisRun(&timeout, cmd.RunE)
 	return cmd
 }
 

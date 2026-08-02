@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,25 +20,7 @@ func (s *Service) loadOrBuild(cachePath string, target string) (*model.Index, er
 	if strings.TrimSpace(target) == "" {
 		target = s.defaultRoot
 	}
-	// Auto-discover cached index
-	autoPath := filepath.Join(target, ".canopy", "index.json")
-	if _, err := os.Stat(autoPath); err == nil {
-		if idx, loadErr := index.Load(autoPath); loadErr == nil {
-			if idx.ConfigHashes == nil {
-				return idx, nil // old cache — use it
-			}
-			current, hashErr := index.ComputeConfigHashes(target)
-			if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
-				return idx, nil
-			}
-			// Config changed — fall through to rebuild.
-		}
-	}
-	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
-	if err != nil {
-		return nil, err
-	}
-	return builder.BuildPath(target)
+	return s.loadOrBuildAuto(target)
 }
 
 func (s *Service) loadIndexFromSource(pathArg, cacheArg string) (*model.Index, error) {
@@ -50,17 +33,19 @@ func (s *Service) loadIndexFromSource(pathArg, cacheArg string) (*model.Index, e
 	if target == "" {
 		target = s.defaultRoot
 	}
+	return s.loadOrBuildAuto(target)
+}
+
+func (s *Service) loadOrBuildAuto(target string) (*model.Index, error) {
 	autoPath := filepath.Join(target, ".canopy", "index.json")
 	if _, err := os.Stat(autoPath); err == nil {
 		if idx, loadErr := index.Load(autoPath); loadErr == nil {
-			if idx.ConfigHashes == nil {
-				return idx, nil // old cache — use it
+			builder, buildErr := index.NewBuilderWithWorkspaceIgnores(target)
+			if buildErr != nil {
+				return nil, buildErr
 			}
-			current, hashErr := index.ComputeConfigHashes(target)
-			if hashErr == nil && configHashesMatch(idx.ConfigHashes, current) {
-				return idx, nil
-			}
-			// Config changed — fall through to rebuild.
+			fresh, _, refreshErr := builder.EnsureFreshCache(context.Background(), target, autoPath, idx)
+			return fresh, refreshErr
 		}
 	}
 	builder, err := index.NewBuilderWithWorkspaceIgnores(target)
@@ -219,16 +204,4 @@ func isEntrypointDefinition(definition xref.Definition) bool {
 // Used by call_report.go; new dead-code logic should use roots.Analyzer.
 func isTestSourceFile(path string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), "_test.go")
-}
-
-func configHashesMatch(cached, current map[string]string) bool {
-	if len(cached) != len(current) {
-		return false
-	}
-	for k, v := range cached {
-		if current[k] != v {
-			return false
-		}
-	}
-	return true
 }

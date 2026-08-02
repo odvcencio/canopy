@@ -1,6 +1,9 @@
 package main
 
 import (
+	"math"
+	"runtime/debug"
+
 	"github.com/spf13/cobra"
 )
 
@@ -23,7 +26,14 @@ func (e exitCodeError) ExitCode() int {
 	return e.code
 }
 
+func configureCLIMemoryLimit() {
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		debug.SetMemoryLimit(1 << 30) // 1 GiB
+	}
+}
+
 func newRootCmd() *cobra.Command {
+	configureCLIMemoryLimit()
 	root := &cobra.Command{
 		Use:   "canopy",
 		Short: "Structural code analysis toolkit",

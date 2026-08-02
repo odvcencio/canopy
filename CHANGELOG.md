@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Upgraded `gotreesitter` to `v0.45.0`.
+- The CLI now defaults to a 1 GiB Go soft memory limit, while index builds default to two concurrent parser workers and garbage collection every 32 parsed files. Existing `GOMEMLIMIT`, `GTS_MAX_CONCURRENT`, and `CANOPY_INDEX_GC_EVERY` overrides remain authoritative.
+- `analyze check` and `analyze review` now report long phases and stop after 4 minutes and 45 seconds.
+- Diff-aware analysis builds a changed-only snapshot when no valid index exists.
+  It reports the index scope in text and JSON output.
+
+### Fixed
+- CLI and MCP searches now refresh stale auto-discovered indexes after source edits, deletions, or additions.
+- `index validate` now detects added source files and returns status 2 for stale JSON reports.
+- Large full-index runs no longer rely on host CPU count and optional GC tuning for memory containment.
+- Minified JavaScript bundles are now classified before structural parsing.
+- Complexity analysis now reuses source spans and processes files in parallel.
+- Review analysis now reuses one cross-reference graph.
+- Analysis cancellation now reaches fresh index builds.
+
+## [0.18.0] - 2026-06-02
+
+### Changed
+- Upgraded `gotreesitter` to `v0.20.0`, including the current GLR parser core.
+
+## [0.17.0] - 2026-05-25
+
+### Changed
+- Migrated the public Go module and install path to `m31labs.dev/canopy`.
+
 ## [0.16.2] - 2026-05-24
 
 Patch release updating Canopy to the latest gotreesitter runtime.

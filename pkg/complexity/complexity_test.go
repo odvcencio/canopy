@@ -471,6 +471,107 @@ func b() {
 	}
 }
 
+// sortTestIndex builds a two-function index (a: trivial, b: branching with
+// more operators/operands) shared by the volume/mi sort tests below. b has
+// strictly more code and branching than a, so it must have a higher Halstead
+// Volume and a lower Maintainability Index.
+func sortTestIndex(t *testing.T) (*model.Index, string) {
+	t.Helper()
+	dir := t.TempDir()
+	src := `package main
+
+func a() {
+}
+
+func b() {
+	if true {
+		for i := 0; i < 10; i++ {
+			x := i * 2
+			_ = x
+		}
+	}
+}
+`
+	path := filepath.Join(dir, "sort_metrics.go")
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	idx := &model.Index{
+		Version:     "1",
+		Root:        dir,
+		GeneratedAt: time.Now(),
+		Files: []model.FileSummary{
+			{
+				Path:     path,
+				Language: "go",
+				Symbols: []model.Symbol{
+					{
+						File:      path,
+						Kind:      "function_definition",
+						Name:      "a",
+						Signature: "func a()",
+						StartLine: 3,
+						EndLine:   4,
+					},
+					{
+						File:      path,
+						Kind:      "function_definition",
+						Name:      "b",
+						Signature: "func b()",
+						StartLine: 6,
+						EndLine:   13,
+					},
+				},
+			},
+		},
+	}
+	return idx, dir
+}
+
+// TestSortByVolume guards the `--sort volume` CLI option: Options.Sort =
+// "volume" must order functions by descending Halstead Volume.
+func TestSortByVolume(t *testing.T) {
+	idx, dir := sortTestIndex(t)
+
+	report, err := Analyze(idx, dir, Options{Sort: "volume"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.Functions) != 2 {
+		t.Fatalf("expected 2 functions, got %d", len(report.Functions))
+	}
+	if report.Functions[0].Halstead.Volume < report.Functions[1].Halstead.Volume {
+		t.Errorf("expected descending sort by volume: %f < %f",
+			report.Functions[0].Halstead.Volume, report.Functions[1].Halstead.Volume)
+	}
+	if report.Functions[0].Name != "b" {
+		t.Errorf("expected b (more code) to sort first by volume, got %q", report.Functions[0].Name)
+	}
+}
+
+// TestSortByMaintainability guards the `--sort mi` CLI option: Options.Sort =
+// "mi" must order functions by ascending Maintainability Index (worst/lowest
+// first), the inverse direction of every other sort field.
+func TestSortByMaintainability(t *testing.T) {
+	idx, dir := sortTestIndex(t)
+
+	report, err := Analyze(idx, dir, Options{Sort: "mi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(report.Functions) != 2 {
+		t.Fatalf("expected 2 functions, got %d", len(report.Functions))
+	}
+	if report.Functions[0].Maintainability.Original > report.Functions[1].Maintainability.Original {
+		t.Errorf("expected ascending sort by mi (worst first): %f > %f",
+			report.Functions[0].Maintainability.Original, report.Functions[1].Maintainability.Original)
+	}
+	if report.Functions[0].Name != "b" {
+		t.Errorf("expected b (more complex, lower MI) to sort first by mi, got %q", report.Functions[0].Name)
+	}
+}
+
 func TestMinCyclomaticFilter(t *testing.T) {
 	dir := t.TempDir()
 	src := `package main
