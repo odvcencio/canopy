@@ -43,6 +43,27 @@ func scoreCandidates(candidates []*candidateItem, graph *xref.Graph, req Request
 	fanInPercentile := fanInPercentileRanks(graph)
 	queryTerms := normalizedTerms(taskQuery(req.Intent))
 
+	// G-A: personalized PageRank proximity to the focus/changed seeds.
+	// Seed entities already score through their own focus/changed
+	// signals, so only non-seed candidates receive proximity points,
+	// normalized against the best non-seed candidate.
+	pprSeeds := map[string]bool{}
+	for _, c := range candidates {
+		if (c.Flags.Focus || c.Flags.Changed) && c.EntityID != "" {
+			pprSeeds[c.EntityID] = true
+		}
+	}
+	ppr := pprScores(graph, pprSeeds)
+	maxPPR := 0.0
+	for _, c := range candidates {
+		if c.EntityID == "" || pprSeeds[c.EntityID] {
+			continue
+		}
+		if score := ppr[c.EntityID]; score > maxPPR {
+			maxPPR = score
+		}
+	}
+
 	for _, c := range candidates {
 		var reasons []SelectionReason
 		total := 0
@@ -92,6 +113,13 @@ func scoreCandidates(candidates []*candidateItem, graph *xref.Graph, req Request
 		}
 		if c.Flags.TransitiveDepth2 {
 			add("transitive_graph_depth_2", scoreTransitiveDepth2)
+		}
+		if maxPPR > 0 && c.EntityID != "" && !pprSeeds[c.EntityID] {
+			if score := ppr[c.EntityID]; score > 0 {
+				if pts := int(math.Round(float64(scorePPRMax) * score / maxPPR)); pts > 0 {
+					add("ppr_graph_proximity", pts)
+				}
+			}
 		}
 		if c.Flags.Generated && !c.Flags.ExplicitRequired && !c.Flags.ExplicitSelector {
 			add("generated_not_explicitly_requested", scoreGeneratedPenalty)

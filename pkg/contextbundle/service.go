@@ -12,7 +12,7 @@ import (
 
 // PolicyVersion identifies the deterministic scoring/packing policy this
 // service implements (spec 10.8).
-const PolicyVersion = "context-selection-v1"
+const PolicyVersion = "context-selection-v2"
 
 // SchemaVersion identifies the receipt/manifest schema shape.
 const SchemaVersion = "contextbundle-v1"
