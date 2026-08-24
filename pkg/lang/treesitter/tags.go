@@ -64,6 +64,13 @@ var supplementalTagsQueries = map[string]string{
 	"rust": strings.Join([]string{
 		"(type_item name: (type_identifier) @name) @definition.type",
 	}, "\n"),
+	// gotreesitter's inferred Java tag query indexes method definitions and
+	// call references but drops `record_declaration`, a common exported API
+	// form. Capture the record name as a type definition without disturbing
+	// any existing captures.
+	"java": strings.Join([]string{
+		"(record_declaration name: (identifier) @name) @definition.type",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
