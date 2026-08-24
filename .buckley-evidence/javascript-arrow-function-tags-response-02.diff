@@ -1,0 +1,63 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1b47566..0000000 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -55,6 +55,13 @@ var curatedTagsQueries = map[string]string{
+ // gotreesitter's inferred TypeScript tag query indexes ordinary function
+ // declarations but misses arrow functions bound by lexical declarations,
+ // a common exported API form. Capture the declarator's identifier as the
+ // definition name.
++	// The same gap exists for JavaScript, where exported arrow functions are
++	// an equally common API form.
++	"javascript": strings.Join([]string{
++		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
++	}, "\n"),
+ 	"typescript": strings.Join([]string{
+ 		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
+ 	}, "\n"),
+ }
+diff --git a/pkg/lang/treesitter/javascript_tags_test.go b/pkg/lang/treesitter/javascript_tags_test.go
+new file mode 100644
+index 0000000..0000001
+--- /dev/null
++++ b/pkg/lang/treesitter/javascript_tags_test.go
+@@ -0,0 +1,31 @@
++package treesitter
++
++import "testing"
++
++const javascriptArrowSample = `export const fetchUser = async (id) => {
++  return normalize(id)
++}
++
++function normalize(value) {
++  return value.trim()
++}
++
++fetchUser("42")
++`
++
++func TestJavaScriptArrowFunctionDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".js")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.js", []byte(javascriptArrowSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++
++	if !hasSymbol(summary, "function_definition", "fetchUser") {
++		t.Fatalf("missing exported arrow function definition fetchUser; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "function_definition", "normalize") {
++		t.Fatalf("missing ordinary function definition normalize; symbols=%v", summary.Symbols)
++	}
++	if !hasReference(summary, "reference.call", "normalize") {
++		t.Fatalf("missing call reference normalize; references=%v", summary.References)
++	}
++	if !hasReference(summary, "reference.call", "fetchUser") {
++		t.Fatalf("missing call reference fetchUser; references=%v", summary.References)
++	}
++}
