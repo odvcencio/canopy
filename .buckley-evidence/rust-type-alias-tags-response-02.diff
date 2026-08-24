@@ -1,0 +1,65 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 3e2cdb5..0000000 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -46,4 +46,9 @@ var curatedTagsQueries = map[string]string{
+ 	"ruby": strings.Join([]string{
+ 		// Containers: class and module names are constants.
+ 		"(class name: (constant) @name) @definition.class",
+ 		"(module name: (constant) @name) @definition.module",
+ 		// Ordinary instance methods.
+ 		"(method name: (identifier) @name) @definition.method",
+ 		// Singleton / class methods (def self.foo).
+ 		"(singleton_method name: (identifier) @name) @definition.method",
+ 		// Call references; method names may be identifiers or constants.
+ 		"(call method: [(identifier) @name (constant) @name]) @reference.call",
+ 	}, "\n"),
++	"rust": strings.Join([]string{
++		// Type definitions, including type aliases declared as type_item.
++		"(type_item name: (type_identifier) @name) @definition.type",
++		// Ordinary function definitions and call references.
++		"(function_item name: (identifier) @name) @definition.function",
++		"(call_expression function: (identifier) @name) @reference.call",
++	}, "\n"),
+ }
+diff --git a/pkg/lang/treesitter/tags_rust_test.go b/pkg/lang/treesitter/tags_rust_test.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/pkg/lang/treesitter/tags_rust_test.go
+@@ -0,0 +1,31 @@
++package treesitter
++
++import "testing"
++
++const rustTypeAliasSample = `pub type UserId = u64;
++
++pub fn normalize(id: UserId) -> UserId {
++    id
++}
++
++fn main() {
++    normalize(42);
++}
++`
++
++func TestRustTypeAliasDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".rs")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.rs", []byte(rustTypeAliasSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "type_definition", "UserId") {
++		t.Fatalf("missing type definition UserId; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "function_definition", "normalize") {
++		t.Fatalf("missing definition; symbols=%v", summary.Symbols)
++	}
++	if !hasReference(summary, "reference.call", "normalize") {
++		t.Fatalf("missing reference.call normalize; references=%v", summary.References)
++	}
++}
