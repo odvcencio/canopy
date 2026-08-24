@@ -53,6 +53,11 @@ var supplementalTagsQueries = map[string]string{
 	"typescript": strings.Join([]string{
 		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
 	}, "\n"),
+	// The same gap exists for JavaScript, where exported arrow functions are
+	// an equally common API form.
+	"javascript": strings.Join([]string{
+		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
