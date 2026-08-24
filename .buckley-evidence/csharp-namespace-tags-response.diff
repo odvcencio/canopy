@@ -1,0 +1,80 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1a2b3c4..5e6d7f8 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -101,6 +101,13 @@ var supplementalTagsQueries = map[string]string{
+ 	"cpp": strings.Join([]string{
+ 		"(namespace_definition name: (namespace_identifier) @name) @definition.module",
+ 	}, "\n"),
++	// gotreesitter's inferred C# tag query indexes interfaces, classes, and
++	// methods but drops `namespace_declaration` containers, the primary
++	// container for exported C# APIs. Capture both simple (identifier) and
++	// qualified namespace names as module definitions without disturbing any
++	// existing captures.
++	"c_sharp": strings.Join([]string{
++		"(namespace_declaration name: [(identifier) (qualified_name)] @name) @definition.module",
++	}, "\n"),
+ }
+ 
+ // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
+diff --git a/pkg/lang/treesitter/tags_csharp_test.go b/pkg/lang/treesitter/tags_csharp_test.go
+index 0000000..1111111 100644
+--- /dev/null
++++ b/pkg/lang/treesitter/tags_csharp_test.go
+@@ -0,0 +1,42 @@
++package treesitter
++
++import (
++	"testing"
++
++	"github.com/odvcencio/canopy/internal/model"
++)
++
++const csharpNamespaceSample = `namespace Acme.Telemetry
++{
++    public interface IClock
++    {
++        void Tick();
++    }
++
++    public class Clock : IClock
++    {
++        public void Tick() {}
++    }
++}
++
++namespace Utilities
++{
++    public class Parser {}
++}
++`
++
++func TestCSharpNamespaceDeclarationsIndexedAsModules(t *testing.T) {
++	entry := findEntryByExtension(t, ".cs")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.cs", []byte(csharpNamespaceSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++
++	if !hasSymbol(summary, "interface_definition", "IClock") {
++		t.Error("missing C# interface IClock")
++	}
++	for _, cls := range []string{"Clock", "Parser"} {
++		if !hasSymbol(summary, "class_definition", cls) {
++			t.Errorf("missing C# class %s", cls)
++		}
++	}
++	if countSymbols(summary, "method_definition", "Tick") != 2 {
++		t.Error("missing C# methods Tick")
++	}
++	if !hasSymbol(summary, "module_definition", "Acme.Telemetry") {
++		t.Error("missing C# namespace Acme.Telemetry")
++	}
++	if !hasSymbol(summary, "module_definition", "Utilities") {
++		t.Error("missing C# namespace Utilities")
++	}
++}
