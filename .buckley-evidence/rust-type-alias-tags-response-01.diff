@@ -1,0 +1,55 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 0000000..0000001 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -var supplementalTagsQueries = map[string]string{
+ 	"javascript": strings.Join([]string{
+ 		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
+ 	}, "\n"),
++	// gotreesitter's inferred Rust tag query indexes function definitions and
++	// call references but drops `type_item` aliases, a common exported API
++	// form. Capture the alias name as a type definition.
++	"rust": strings.Join([]string{
++		"(type_item name: (type_identifier) @name) @definition.type",
++	}, "\n"),
+ }
+diff --git a/pkg/lang/treesitter/tags_rust_test.go b/pkg/lang/treesitter/tags_rust_test.go
+index 0000000..0000002 100644
+--- /dev/null
++++ b/pkg/lang/treesitter/tags_rust_test.go
+@@ -0,0 +1,33 @@
++package treesitter
++
++import "testing"
++
++const rustTypeAliasSample = `pub type UserId = u64;
++
++pub fn normalize(id: UserId) -> UserId {
++    id
++}
++
++fn main() {
++    normalize(42);
++}
++`
++
++func TestRustTypeAliasDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".rs")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.rs", []byte(rustTypeAliasSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "type_definition", "UserId") {
++		t.Fatalf("missing type alias; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "function_definition", "normalize") {
++		t.Fatalf("missing function definition; symbols=%v", summary.Symbols)
++	}
++	if !hasReference(summary, "reference.call", "normalize") {
++		t.Fatalf("missing call reference; references=%v", summary.References)
++	}
++}
