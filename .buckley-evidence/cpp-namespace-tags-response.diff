@@ -1,0 +1,69 @@
+```diff
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1a2b3c4..5d6e7f8 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -1,6 +1,7 @@
+ package treesitter
+ 
+ import (
++	_ "embed"
+ 	"strings"
+ 
+ 	"github.com/odvcencio/gotreesitter/grammars"
+ )
+@@ -70,6 +71,13 @@ var supplementalTagsQueries = map[string]string{
+ 	"kotlin": strings.Join([]string{
+ 		"(object_declaration (type_identifier) @name) @definition.type",
+ 	}, "
+"),
++	// gotreesitter's inferred C++ tag query indexes function definitions but
++	// drops named `namespace_definition`s, the primary container for exported
++	// C++ APIs. Capture the namespace name as a module definition without
++	// disturbing any existing captures; anonymous namespaces do not match.
++	"cpp": strings.Join([]string{
++		"(namespace_definition name: (namespace_identifier) @name) @definition.module",
++	}, "
+"),
+ }
+ 
+ // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
+diff --git a/pkg/lang/treesitter/tags_cpp_namespace_test.go b/pkg/lang/treesitter/tags_cpp_namespace_test.go
+index 0000000..1111111 100644
+--- /dev/null
++++ b/pkg/lang/treesitter/tags_cpp_namespace_test.go
+@@ -0,0 +1,33 @@
++package treesitter
++
++import "testing"
++
++const cppNamespaceSample = `namespace telemetry {
++void emit() {}
++}
++
++int main() {
++    telemetry::emit();
++}
++`
++
++func TestTagsCppNamespaceDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".cpp")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.cpp", []byte(cppNamespaceSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "function_definition", "emit") {
++		t.Fatalf("missing function_definition emit; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "function_definition", "main") {
++		t.Fatalf("missing function_definition main; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "module_definition", "telemetry") {
++		t.Fatalf("missing module_definition telemetry; symbols=%v", summary.Symbols)
++	}
++}
+```
