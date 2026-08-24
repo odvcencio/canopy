@@ -1,0 +1,51 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1111111..2222222 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -41,8 +41,10 @@ var curatedTagsQueries = map[string]string{
+ 	"ruby": strings.Join([]string{
+-		// Containers: class and module names are constants.
++		// Containers: names are either bare constants or qualified scope
++		// resolutions (e.g. Billing::Invoice). The symbol name remains the
++		// terminal constant of the declaration.
+ 		"(class name: (constant) @name) @definition.class",
++		"(class name: (scope_resolution name: (constant) @name)) @definition.class",
+ 		"(module name: (constant) @name) @definition.module",
++		"(module name: (scope_resolution name: (constant) @name)) @definition.module",
+ 		// Ordinary instance methods.
+ 		"(method name: (identifier) @name) @definition.method",
+diff --git a/pkg/lang/treesitter/ruby_tags_test.go b/pkg/lang/treesitter/ruby_tags_test.go
+index 3333333..4444444 100644
+--- a/pkg/lang/treesitter/ruby_tags_test.go
++++ b/pkg/lang/treesitter/ruby_tags_test.go
+@@ -5,6 +5,12 @@ import "testing"
+ const rubyCallableSample = `
+ module Payments
+   class Invoice
+@@ -24,6 +30,14 @@ func TestRubyCallableExtraction(t *testing.T) {
+ 	for _, name := range []string{"tax_rate", "lookup_rate"} {
+ 		if !hasReference(summary, "reference.call", name) {
+ 			t.Errorf("missing call reference %s", name)
+ 		}
+ 	}
+ }
++
++const rubyQualifiedSample = "class Billing::Invoice\nend\nmodule API::V2\nend\n"
++
++func TestRubyQualifiedContainerExtraction(t *testing.T) {
++	entry := findEntryByExtension(t, ".rb")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("qualified.rb", []byte(rubyQualifiedSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "class_definition", "Invoice") {
++		t.Errorf("missing qualified class definition Invoice")
++	}
++	if !hasSymbol(summary, "module_definition", "V2") {
++		t.Errorf("missing qualified module definition V2")
++	}
++}
