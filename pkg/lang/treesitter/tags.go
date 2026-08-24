@@ -71,6 +71,13 @@ var supplementalTagsQueries = map[string]string{
 	"java": strings.Join([]string{
 		"(record_declaration name: (identifier) @name) @definition.type",
 	}, "\n"),
+	// gotreesitter's inferred Kotlin tag query indexes function declarations
+	// and call references but drops `object_declaration`, a common exported
+	// API form. Capture the object name as a type definition without
+	// disturbing any existing captures.
+	"kotlin": strings.Join([]string{
+		"(object_declaration (type_identifier) @name) @definition.type",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
