@@ -1,0 +1,68 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1111111..2222222 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -1,3 +1,5 @@
+ 		// Containers: class and module names are constants.
+ 		"(class name: (constant) @name) @definition.class",
+ 		"(module name: (constant) @name) @definition.module",
++		"(class name: (scope_resolution (constant) (constant)) @name) @definition.class",
++		"(module name: (scope_resolution (constant) (constant)) @name) @definition.module",
+ 		// Ordinary instance methods.
+diff --git a/pkg/lang/treesitter/ruby_tags_test.go b/pkg/lang/treesitter/ruby_tags_test.go
+index 3333333..4444444 100644
+--- a/pkg/lang/treesitter/ruby_tags_test.go
++++ b/pkg/lang/treesitter/ruby_tags_test.go
+@@ -1,4 +1,6 @@
+ const rubyCallableSample = `
+ module Payments
+   class Invoice
++    def initialize(total)
++      @total = total
++    end
++
+     def initialize(total)
+       @total = total
+     end
+ 
+     def total_with_tax(rate)
+       tax_rate(rate)
+       @total * rate + @total
+     end
+ 
+     def self.default_rate
+       lookup_rate(:standard)
+     end
+   end
+ end
+ `
+ 
+ func TestRubyCallableExtraction(t *testing.T) {
+ 	entry := findEntryByExtension(t, ".rb")
+ 	if entry.Name != "ruby" {
+ 		t.Fatalf("expected ruby entry, got %q", entry.Name)
+ 	}
+ 	parser, err := NewParser(entry)
+ 	if err != nil {
+ 		t.Fatalf("NewParser: %v", err)
+ 	}
+ 	summary, err := parser.Parse("sample.rb", []byte(rubyCallableSample))
+ 	if err != nil {
+ 		t.Fatalf("Parse: %v", err)
+ 	}
+ 
+ 	// Containers.
+ 	if !hasSymbol(summary, "module_definition", "Payments") {
+ 		t.Errorf("missing module definition Payments")
+ 	}
+ 	if !hasSymbol(summary, "class_definition", "Invoice") {
+ 		t.Errorf("missing class definition Invoice")
+ 	}
++
++	// Qualified containers.
++	if !hasSymbol(summary, "class_definition", "Invoice") {
++		t.Errorf("missing qualified class definition Invoice")
++	}
++	if !hasSymbol(summary, "module_definition", "V2") {
++		t.Errorf("missing qualified module definition V2")
++	}
