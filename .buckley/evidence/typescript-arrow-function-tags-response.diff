@@ -1,0 +1,83 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1a2b3c4..5d6e7f8 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -45,6 +45,20 @@ var curatedTagsQueries = map[string]string{
+ 	}, "\n"),
+ }
+ 
++// supplementalTagsQueries holds small per-language capture additions appended
++// to a resolved inferred or curated query. Each entry patches a single known
++// gap without replacing the base query, which must keep resolving all of its
++// existing captures.
++var supplementalTagsQueries = map[string]string{
++	// gotreesitter's inferred TypeScript tag query indexes ordinary function
++	// declarations but misses arrow functions bound by lexical declarations,
++	// a common exported API form. Capture the declarator's identifier as the
++	// definition name.
++	"typescript": strings.Join([]string{
++		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
++	}, "\n"),
++}
++
+ // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
+ // language entry, in priority order:
+ //
+@@ -55,12 +69,18 @@ var curatedTagsQueries = map[string]string{
+ // It returns "" when none of the above yields a query.
+ func ResolveTagsQuery(entry grammars.LangEntry) string {
+-	if q := strings.TrimSpace(entry.TagsQuery); q != "" {
++	if strings.TrimSpace(entry.TagsQuery) != "" {
+ 		return entry.TagsQuery
+ 	}
+-	if q := curatedTagsQueries[entry.Name]; strings.TrimSpace(q) != "" {
+-		return q
++	base := curatedTagsQueries[entry.Name]
++	if strings.TrimSpace(base) == "" {
++		base = grammars.ResolveTagsQuery(entry)
++	}
++	supplemental := supplementalTagsQueries[entry.Name]
++	if strings.TrimSpace(base) == "" || strings.TrimSpace(supplemental) == "" {
++		return base
+ 	}
+-	return grammars.ResolveTagsQuery(entry)
++	return base + "\n" + supplemental
+ }
+diff --git a/pkg/lang/treesitter/typescript_tags_test.go b/pkg/lang/treesitter/typescript_tags_test.go
+index 0000000..1111111 100644
+--- /dev/null
++++ b/pkg/lang/treesitter/typescript_tags_test.go
+@@ -0,0 +1,31 @@
++package treesitter
++
++import "testing"
++
++const typescriptArrowSample = `export const fetchUser = async (id: string): Promise<string> => {
++  return normalize(id)
++}
++
++function normalize(value: string): string {
++  return value.trim()
++}
++
++fetchUser("42")
++`
++
++func TestTypeScriptArrowFunctionDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".ts")
++
++	summary := extractSummary(t, entry, "sample.ts", typescriptArrowSample)
++
++	if !hasSymbol(summary, "function_definition", "fetchUser") {
++		t.Fatalf("missing exported arrow function definition fetchUser; symbols=%v", summary.Symbols)
++	}
++	if !hasSymbol(summary, "function_definition", "normalize") {
++		t.Fatalf("missing ordinary function definition normalize; symbols=%v", summary.Symbols)
++	}
++	if !hasReference(summary, "reference.call", "normalize") {
++		t.Fatalf("missing call reference normalize; references=%v", summary.References)
++	}
++	if !hasReference(summary, "reference.call", "fetchUser") {
++		t.Fatalf("missing call reference fetchUser; references=%v", summary.References)
++	}
++}
