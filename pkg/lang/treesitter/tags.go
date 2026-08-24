@@ -28,6 +28,17 @@ var curatedTagsQueries = map[string]string{
 		"(call_expression function: (identifier) @name) @reference.call",
 		"(call_expression function: (selector_expression field: (field_identifier) @name)) @reference.call",
 	}, "\n"),
+	"ruby": strings.Join([]string{
+		// Containers: class and module names are constants.
+		"(class name: (constant) @name) @definition.class",
+		"(module name: (constant) @name) @definition.module",
+		// Ordinary instance methods.
+		"(method name: (identifier) @name) @definition.method",
+		// Singleton / class methods (def self.foo).
+		"(singleton_method name: (identifier) @name) @definition.method",
+		// Call references; method names may be identifiers or constants.
+		"(call method: [(identifier) @name (constant) @name]) @reference.call",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
