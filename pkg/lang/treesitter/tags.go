@@ -78,6 +78,13 @@ var supplementalTagsQueries = map[string]string{
 	"kotlin": strings.Join([]string{
 		"(object_declaration (type_identifier) @name) @definition.type",
 	}, "\n"),
+	// gotreesitter's inferred C++ tag query indexes function definitions but
+	// drops named `namespace_definition`s, the primary container for exported
+	// C++ APIs. Capture the namespace name as a module definition without
+	// disturbing any existing captures; anonymous namespaces do not match.
+	"cpp": strings.Join([]string{
+		"(namespace_definition name: (namespace_identifier) @name) @definition.module",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
