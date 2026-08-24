@@ -1,0 +1,52 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 1f2c9e3..7a4b1d2 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -82,6 +82,12 @@ var supplementalTagsQueries = map[string]string{
+ 	"java": strings.Join([]string{
+ 		"(record_declaration name: (identifier) @name) @definition.type",
+ 	}, "\n"),
++	// gotreesitter's inferred Kotlin tag query indexes function declarations
++	// and call references but drops `object_declaration`, a common exported
++	// API form. Capture the object name as a type definition without
++	// disturbing any existing captures.
++	"kotlin": strings.Join([]string{
++		"(object_declaration (type_identifier) @name) @definition.type",
++	}, "\n"),
+ }
+ 
+ // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
+diff --git a/pkg/lang/treesitter/tags_kotlin_test.go b/pkg/lang/treesitter/tags_kotlin_test.go
+index 0000000..3e8f5a1 100644
+--- a/pkg/lang/treesitter/tags_kotlin_test.go
++++ b/pkg/lang/treesitter/tags_kotlin_test.go
+@@ -0,0 +1,27 @@
++package treesitter
++
++import "testing"
++
++const kotlinObjectSample = `object Registry {
++    fun normalize(value: String): String {
++        return value.trim()
++    }
++}
++
++fun main() {
++    Registry.normalize(" 42 ")
++}
++`
++
++func TestKotlinObjectDeclarationIndexedAsTypeDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".kt")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.kt", []byte(kotlinObjectSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "type_definition", "Registry") {
++		t.Fatalf("missing Kotlin object definition Registry; symbols=%v", summary.Symbols)
++	}
++}
