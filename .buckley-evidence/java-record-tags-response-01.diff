@@ -1,0 +1,62 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 70836d6..1a2b3c4 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -74,6 +74,12 @@ var supplementalTagsQueries = map[string]string{
+ 	"rust": strings.Join([]string{
+ 		"(type_item name: (type_identifier) @name) @definition.type",
+ 	}, "\n"),
++	// gotreesitter's inferred Java tag query indexes method definitions and
++	// call references but drops `record_declaration`, a common exported API
++	// form. Capture the record name as a type definition without disturbing
++	// any existing captures.
++	"java": strings.Join([]string{
++		"(record_declaration name: (identifier) @name) @definition.type",
++	}, "\n"),
+ }
+ 
+ // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
+diff --git a/pkg/lang/treesitter/java_record_test.go b/pkg/lang/treesitter/java_record_test.go
+new file mode 100644
+index 0000000..9d4e5f6
+--- /dev/null
++++ b/pkg/lang/treesitter/java_record_test.go
+@@ -0,0 +1,33 @@
++package treesitter
++
++import "testing"
++
++const javaRecordSample = `public record User(String id) {
++    public String label() {
++        return normalize(id);
++    }
++
++    private static String normalize(String value) {
++        return value.trim();
++    }
++}
++`
++
++func TestJavaRecordDefinition(t *testing.T) {
++	entry := findEntryByExtension(t, ".java")
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("User.java", []byte(javaRecordSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++	if !hasSymbol(summary, "type_definition", "User") {
++		t.Errorf("missing Java record definition User")
++	}
++	if !hasSymbol(summary, "method_definition", "label") {
++		t.Errorf("missing Java method definition label")
++	}
++	if !hasSymbol(summary, "method_definition", "normalize") {
++		t.Errorf("missing Java method definition normalize")
++	}
++	if !hasReference(summary, "reference.call", "normalize") {
++		t.Errorf("missing call reference normalize")
++	}
++}
