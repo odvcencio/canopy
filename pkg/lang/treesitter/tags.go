@@ -58,6 +58,12 @@ var supplementalTagsQueries = map[string]string{
 	"javascript": strings.Join([]string{
 		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
 	}, "\n"),
+	// gotreesitter's inferred Rust tag query indexes function definitions and
+	// call references but drops `type_item` aliases, a common exported API
+	// form. Capture the alias name as a type definition.
+	"rust": strings.Join([]string{
+		"(type_item name: (type_identifier) @name) @definition.type",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
