@@ -41,6 +41,20 @@ var curatedTagsQueries = map[string]string{
 	}, "\n"),
 }
 
+// supplementalTagsQueries holds small per-language capture additions appended
+// to a resolved inferred or curated query. Each entry patches a single known
+// gap without replacing the base query, which must keep resolving all of its
+// existing captures.
+var supplementalTagsQueries = map[string]string{
+	// gotreesitter's inferred TypeScript tag query indexes ordinary function
+	// declarations but misses arrow functions bound by lexical declarations,
+	// a common exported API form. Capture the declarator's identifier as the
+	// definition name.
+	"typescript": strings.Join([]string{
+		"(variable_declarator name: (identifier) @name value: (arrow_function)) @definition.function",
+	}, "\n"),
+}
+
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
 // language entry, in priority order:
 //
@@ -50,11 +64,16 @@ var curatedTagsQueries = map[string]string{
 //
 // It returns "" when none of the above yields a query.
 func ResolveTagsQuery(entry grammars.LangEntry) string {
-	if q := strings.TrimSpace(entry.TagsQuery); q != "" {
+	if strings.TrimSpace(entry.TagsQuery) != "" {
 		return entry.TagsQuery
 	}
-	if q := curatedTagsQueries[entry.Name]; strings.TrimSpace(q) != "" {
-		return q
+	base := curatedTagsQueries[entry.Name]
+	if strings.TrimSpace(base) == "" {
+		base = grammars.ResolveTagsQuery(entry)
 	}
-	return grammars.ResolveTagsQuery(entry)
+	supplemental := supplementalTagsQueries[entry.Name]
+	if strings.TrimSpace(base) == "" || strings.TrimSpace(supplemental) == "" {
+		return base
+	}
+	return base + "\n" + supplemental
 }
