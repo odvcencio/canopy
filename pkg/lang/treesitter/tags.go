@@ -85,6 +85,14 @@ var supplementalTagsQueries = map[string]string{
 	"cpp": strings.Join([]string{
 		"(namespace_definition name: (namespace_identifier) @name) @definition.module",
 	}, "\n"),
+	// gotreesitter's inferred C# tag query indexes interfaces, classes, and
+	// methods but drops `namespace_declaration` containers, the primary
+	// container for exported C# APIs. Capture both simple (identifier) and
+	// qualified namespace names as module definitions without disturbing any
+	// existing captures.
+	"c_sharp": strings.Join([]string{
+		"(namespace_declaration name: [(identifier) (qualified_name)] @name) @definition.module",
+	}, "\n"),
 }
 
 // ResolveTagsQuery returns the tree-sitter tags query canopy should use for a
