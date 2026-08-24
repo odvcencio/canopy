@@ -1,0 +1,88 @@
+diff --git a/pkg/lang/treesitter/tags.go b/pkg/lang/treesitter/tags.go
+index 0000000..1111111 100644
+--- a/pkg/lang/treesitter/tags.go
++++ b/pkg/lang/treesitter/tags.go
+@@ -1,3 +1,10 @@
+ 	}, "\n"),
++	"ruby": strings.Join([]string{
++		// Containers: class and module names are constants.
++		"(class name: (constant) @name) @definition.class",
++		"(module name: (constant) @name) @definition.module",
++		// Ordinary instance methods.
++		"(method name: (identifier) @name) @definition.method",
++		// Singleton / class methods (def self.foo).
++		"(singleton_method name: (identifier) @name) @definition.method",
++		// Call references; method names may be identifiers or constants.
++		"(call method: [(identifier) @name (constant) @name]) @reference.call",
++	}, "\n"),
+ }
+diff --git a/pkg/lang/treesitter/ruby_tags_test.go b/pkg/lang/treesitter/ruby_tags_test.go
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/pkg/lang/treesitter/ruby_tags_test.go
+@@ -0,0 +1,63 @@
++package treesitter
++
++import "testing"
++
++const rubyCallableSample = `
++module Payments
++  class Invoice
++    def initialize(total)
++      @total = total
++    end
++
++    def total_with_tax(rate)
++      tax_rate(rate)
++      @total * rate + @total
++    end
++
++    def self.default_rate
++      lookup_rate(:standard)
++    end
++  end
++end
++`
++
++func TestRubyCallableExtraction(t *testing.T) {
++	entry := findEntryByExtension(t, ".rb")
++	if entry.Name != "ruby" {
++		t.Fatalf("expected ruby entry, got %q", entry.Name)
++	}
++	parser, err := NewParser(entry)
++	if err != nil {
++		t.Fatalf("NewParser: %v", err)
++	}
++	summary, err := parser.Parse("sample.rb", []byte(rubyCallableSample))
++	if err != nil {
++		t.Fatalf("Parse: %v", err)
++	}
++
++	// Containers.
++	if !hasSymbol(summary, "module_definition", "Payments") {
++		t.Errorf("missing module definition Payments")
++	}
++	if !hasSymbol(summary, "class_definition", "Invoice") {
++		t.Errorf("missing class definition Invoice")
++	}
++
++	// Ordinary instance methods.
++	for _, name := range []string{"initialize", "total_with_tax"} {
++		if !hasSymbol(summary, "method_definition", name) {
++			t.Errorf("missing method definition %s", name)
++		}
++	}
++
++	// Singleton / class method.
++	if !hasSymbol(summary, "method_definition", "default_rate") {
++		t.Errorf("missing singleton method definition default_rate")
++	}
++
++	// Call references.
++	for _, name := range []string{"tax_rate", "lookup_rate"} {
++		if !hasReference(summary, "reference.call", name) {
++			t.Errorf("missing call reference %s", name)
++		}
++	}
++}
