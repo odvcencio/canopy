@@ -178,6 +178,10 @@ func (b *Builder) ApplyWatchChanges(current *model.Index, changedAbsPaths []stri
 			continue
 		}
 
+		if b.detector != nil {
+			summary.Generated = b.detector.Detect(relPath, source)
+		}
+
 		delete(errorsByPath, relPath)
 		filesByPath[relPath] = summary
 		stats.ParsedFiles++
