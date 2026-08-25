@@ -19,7 +19,7 @@ func newScopeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "scope <file>",
 		Aliases: []string{"gtsscope"},
-		Short:   "Resolve symbols in scope for a file and line",
+		Short:   "Resolve lexical scope for a file and line",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			filePath := args[0]
@@ -47,6 +47,7 @@ func newScopeCmd() *cobra.Command {
 
 			fmt.Printf("file: %s\n", report.File)
 			fmt.Printf("line: %d\n", report.Line)
+			fmt.Printf("language: %s\n", report.Language)
 			fmt.Printf("package: %s\n", report.Package)
 			if report.Focus != nil {
 				fmt.Printf("focus: %s %s [%d:%d]\n", report.Focus.Kind, symbolLabel(report.Focus.Name, report.Focus.Signature), report.Focus.StartLine, report.Focus.EndLine)
