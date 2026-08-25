@@ -126,3 +126,23 @@ func TestReportStatusUsesActionableSeverityOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildHealthForPathsFiltersFilesAndParseErrors(t *testing.T) {
+	idx := &model.Index{
+		Files: []model.FileSummary{
+			{Path: "pkg/clean.go", ParseCoverage: &model.ParseCoverage{Status: model.ParseCoverageClean}},
+			{Path: "pkg/partial.go", ParseCoverage: &model.ParseCoverage{Status: model.ParseCoveragePartial}},
+		},
+		Errors: []model.ParseError{{Path: "pkg/failed.go", Error: "failed"}},
+	}
+	health, err := BuildHealthForPaths(idx, []string{"pkg/clean.go", "pkg/failed.go", "pkg/clean.go"}, 5)
+	if err != nil {
+		t.Fatalf("BuildHealthForPaths returned error: %v", err)
+	}
+	if health.TotalFiles != 1 || health.Summary.Clean != 1 || health.Summary.ParseErrors != 1 || health.Summary.Untrusted != 1 {
+		t.Fatalf("unexpected selected health: %+v", health)
+	}
+	if health.Status != model.ParseCoverageStopped {
+		t.Fatalf("status = %q, want %q", health.Status, model.ParseCoverageStopped)
+	}
+}

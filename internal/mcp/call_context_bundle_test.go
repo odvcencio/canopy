@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"m31labs.dev/canopy/internal/contextpack"
+	"m31labs.dev/canopy/pkg/model"
 )
 
 // TestServiceCallContext_BundleMode verifies the additive gts_context
@@ -53,6 +54,9 @@ func formatGreeting(name string) string {
 	}
 	if result.Content == "" {
 		t.Fatal("expected non-empty rendered content")
+	}
+	if result.ParserHealth.Status != model.ParseCoverageClean || result.ParserHealth.TotalFiles != 1 {
+		t.Fatalf("expected clean parser health for selected context, got %+v", result.ParserHealth)
 	}
 }
 

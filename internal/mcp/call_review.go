@@ -68,19 +68,7 @@ func (s *Service) callReview(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	coverageIdx := *idx
-	coverageIdx.Files = nil
-	coverageIdx.Errors = nil
-	for _, file := range idx.Files {
-		if changedSet[file.Path] {
-			coverageIdx.Files = append(coverageIdx.Files, file)
-		}
-	}
-	for _, parseErr := range idx.Errors {
-		if changedSet[parseErr.Path] {
-			coverageIdx.Errors = append(coverageIdx.Errors, parseErr)
-		}
-	}
+	parserHealth, parserHealthErr := indexcoverage.BuildHealthForPaths(idx, changed, 5)
 	idx = applyGeneratedFilter(idx, boolArg(args, "include_generated", false), stringArg(args, "generator"))
 
 	report := reviewReport{
@@ -88,7 +76,7 @@ func (s *Service) callReview(args map[string]any) (any, error) {
 		ChangedFiles: len(changed),
 		Files:        changed,
 	}
-	if parserHealth, parserHealthErr := indexcoverage.BuildHealth(&coverageIdx, 5); parserHealthErr == nil {
+	if parserHealthErr == nil {
 		report.ParserHealth = &parserHealth
 	}
 

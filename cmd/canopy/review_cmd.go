@@ -93,19 +93,7 @@ func newReviewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			coverageIdx := *idx
-			coverageIdx.Files = nil
-			coverageIdx.Errors = nil
-			for _, file := range idx.Files {
-				if changedSet[file.Path] {
-					coverageIdx.Files = append(coverageIdx.Files, file)
-				}
-			}
-			for _, parseErr := range idx.Errors {
-				if changedSet[parseErr.Path] {
-					coverageIdx.Errors = append(coverageIdx.Errors, parseErr)
-				}
-			}
+			parserHealth, parserHealthErr := indexcoverage.BuildHealthForPaths(idx, changed, 5)
 			idx = applyGeneratedFilter(cmd, idx)
 
 			report := reviewReport{
@@ -117,7 +105,7 @@ func newReviewCmd() *cobra.Command {
 			if changedScoped {
 				report.IndexScope = "changed"
 			}
-			if parserHealth, parserHealthErr := indexcoverage.BuildHealth(&coverageIdx, 5); parserHealthErr == nil {
+			if parserHealthErr == nil {
 				report.ParserHealth = &parserHealth
 			}
 			var (

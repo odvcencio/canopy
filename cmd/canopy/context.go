@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"m31labs.dev/canopy/internal/contextpack"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/contextbundle"
 	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/xref"
@@ -77,6 +78,10 @@ func newContextCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				parserHealth, err := indexcoverage.BuildHealthForPaths(idx, contextManifestPaths(result.Manifest), 5)
+				if err != nil {
+					return err
+				}
 
 				if bundleManifestPath != "" {
 					if err := writeJSONFile(bundleManifestPath, result.Manifest); err != nil {
@@ -90,9 +95,14 @@ func newContextCmd() *cobra.Command {
 				}
 				if jsonOutput {
 					return emitJSON(struct {
-						Receipt  contextbundle.Receipt  `json:"receipt"`
-						Manifest contextbundle.Manifest `json:"manifest"`
-					}{Receipt: result.Receipt, Manifest: result.Manifest})
+						Receipt      contextbundle.Receipt  `json:"receipt"`
+						Manifest     contextbundle.Manifest `json:"manifest"`
+						ParserHealth indexcoverage.Health   `json:"parser_health"`
+					}{Receipt: result.Receipt, Manifest: result.Manifest, ParserHealth: parserHealth})
+				}
+				if parserHealth.Status != model.ParseCoverageClean && parserHealth.Status != model.ParseCoverageGenerated {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: selected context parser health is %s (%d untrusted files)\n",
+						parserHealth.Status, parserHealth.Summary.Untrusted)
 				}
 				fmt.Print(string(result.Content))
 				return nil
@@ -199,6 +209,14 @@ func newContextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bundleManifestPath, "manifest", "", "bundle mode: write the projection manifest as JSON to this path")
 	cmd.Flags().StringVar(&bundleReceiptPath, "receipt", "", "bundle mode: write the context receipt as JSON to this path")
 	return cmd
+}
+
+func contextManifestPaths(manifest contextbundle.Manifest) []string {
+	paths := make([]string, 0, len(manifest.Items))
+	for _, item := range manifest.Items {
+		paths = append(paths, item.Path)
+	}
+	return paths
 }
 
 // conceptReport holds the result of concept-aware context packing.

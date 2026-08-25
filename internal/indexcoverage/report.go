@@ -3,6 +3,7 @@ package indexcoverage
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -118,6 +119,35 @@ func BuildHealth(idx *model.Index, maxFiles int) (Health, error) {
 		IssueFiles:       report.Files,
 		DetailsTruncated: report.DetailsTruncated,
 	}, nil
+}
+
+// BuildHealthForPaths returns parser health for the selected index paths.
+func BuildHealthForPaths(idx *model.Index, paths []string, maxFiles int) (Health, error) {
+	if idx == nil {
+		return Health{}, fmt.Errorf("index is nil")
+	}
+	selected := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+		if normalized != "" && normalized != "." {
+			selected[normalized] = struct{}{}
+		}
+	}
+
+	filtered := *idx
+	filtered.Files = nil
+	filtered.Errors = nil
+	for _, file := range idx.Files {
+		if _, ok := selected[filepath.ToSlash(filepath.Clean(file.Path))]; ok {
+			filtered.Files = append(filtered.Files, file)
+		}
+	}
+	for _, parseErr := range idx.Errors {
+		if _, ok := selected[filepath.ToSlash(filepath.Clean(parseErr.Path))]; ok {
+			filtered.Errors = append(filtered.Errors, parseErr)
+		}
+	}
+	return BuildHealth(&filtered, maxFiles)
 }
 
 // Status returns the highest-severity parser-health status in the report.

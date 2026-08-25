@@ -119,7 +119,7 @@ func searchTools() []Tool {
 		},
 		{
 			Name:        "gts_context",
-			Description: "Pack focused context for a file and line, or build a task-conditioned context bundle when task/mode/selectors are set",
+			Description: "Pack focused context, or build a task-conditioned bundle with parser health when task/mode/selectors are set",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"file":              {Type: "string", Description: "legacy mode: file to pack context around"},

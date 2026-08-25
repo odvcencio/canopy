@@ -82,7 +82,7 @@ Call graph roots can be narrowed with `--file` or `path/to/file.go:Name` when mu
 | `canopy search refs` | Find references by symbol name or regex |
 | `canopy search query` | Raw tree-sitter S-expression queries |
 | `canopy search scope` | Resolve symbols in scope at file + line |
-| `canopy search context` | Pack focused context for agent token budgets. `--concept` for concept-aware packing |
+| `canopy search context` | Pack focused context for agent token budgets. Bundle mode reports parser health; `--concept` enables concept-aware packing |
 | `canopy search symbols` | Search symbols by pattern |
 | `canopy search imports` | Analyze import patterns |
 
@@ -263,7 +263,7 @@ canopy mcp --root /path/to/repo --allow-writes  # enable refactoring tools
 | `gts_callgraph` | Call graph traversal |
 | `gts_dead` | Dead code detection |
 | `gts_impact` | Blast radius computation |
-| `gts_context` | Token-budgeted context packing |
+| `gts_context` | Token-budgeted context packing with parser health on task-conditioned bundles |
 | `gts_grep` | Structural selector search |
 | `gts_coverage` | Parser gaps, stopped parses, recovery receipts, and unknown coverage |
 
