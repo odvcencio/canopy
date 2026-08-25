@@ -75,7 +75,7 @@ Call graph roots can be narrowed with `--file` or `path/to/file.go:Name` when mu
 | `canopy search grep` | Structural selector queries (e.g. `function_definition[name=/^Test/]`) |
 | `canopy search refs` | Find references by symbol name or regex |
 | `canopy search query` | Raw tree-sitter S-expression queries |
-| `canopy search scope` | Resolve symbols in scope at file + line |
+| `canopy search scope` | Resolve lexical scope at file + line, including Rust, Java, and C++ bindings |
 | `canopy search context` | Pack focused context for agent token budgets. `--concept` for concept-aware packing |
 | `canopy search symbols` | Search symbols by pattern |
 | `canopy search imports` | Analyze import patterns |

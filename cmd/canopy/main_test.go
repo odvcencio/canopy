@@ -946,7 +946,7 @@ func work(input string) {
 		t.Fatalf("ReadFrom failed: %v", err)
 	}
 	text := output.String()
-	for _, expected := range []string{"package: sample", "input (param)", "value (local_var)", "fmt (import)"} {
+	for _, expected := range []string{"language: go", "package: sample", "input (param)", "value (local_var)", "fmt (import)"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("expected output to contain %q, got:\n%s", expected, text)
 		}

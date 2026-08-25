@@ -140,7 +140,7 @@ func searchTools() []Tool {
 		},
 		{
 			Name:        "gts_scope",
-			Description: "Resolve symbols in scope for a file and line",
+			Description: "Resolve lexical scope for a file and line, including imports, parameters, destructuring, and control-flow bindings",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"file":              {Type: "string"},
