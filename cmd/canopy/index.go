@@ -166,7 +166,9 @@ func loadBaselineIndex(outPath string) (*model.Index, bool, error) {
 	if strings.TrimSpace(outPath) == "" {
 		return nil, false, nil
 	}
-	cached, err := index.Load(outPath)
+	// A build can migrate an older cache by treating it as a comparison
+	// baseline while the builder reparses entries from the current schema.
+	cached, err := index.LoadLenient(outPath)
 	switch {
 	case err == nil:
 		return cached, true, nil
@@ -201,7 +203,9 @@ func compareBaseline(previous, idx *model.Index, hasBaseline bool) (structdiff.R
 	changed := true
 	if hasBaseline {
 		report = structdiff.Compare(previous, idx)
-		changed = report.Stats.ChangedFiles > 0 || !parseErrorsEqual(previous.Errors, idx.Errors)
+		changed = report.Stats.ChangedFiles > 0 ||
+			!parseErrorsEqual(previous.Errors, idx.Errors) ||
+			!parseCoverageEqual(previous.Files, idx.Files)
 	}
 	return report, changed
 }
@@ -239,7 +243,9 @@ func runIndexWatch(ctx context.Context, target string, builder *index.Builder, c
 		}
 
 		watchReport := structdiff.Compare(current, next)
-		watchChanged := watchReport.Stats.ChangedFiles > 0 || !parseErrorsEqual(current.Errors, next.Errors)
+		watchChanged := watchReport.Stats.ChangedFiles > 0 ||
+			!parseErrorsEqual(current.Errors, next.Errors) ||
+			!parseCoverageEqual(current.Files, next.Files)
 		if !watchChanged {
 			return
 		}

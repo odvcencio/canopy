@@ -36,6 +36,52 @@ type GeneratedInfo struct {
 	Marker    string `json:"marker,omitempty"` // the actual matched text
 }
 
+const (
+	// ParseCoverageClean means the parser reported no actionable syntax gap.
+	// It is a detection result, not a proof that every construct was extracted.
+	ParseCoverageClean = "clean"
+	// ParseCoveragePartial means the parser recovered a tree with one or more
+	// actionable ERROR, MISSING, or unparsed source regions.
+	ParseCoveragePartial = "partial"
+	// ParseCoverageStopped means parsing stopped before the complete source was
+	// accepted, for example because of a parser limit or an unparsed source tail.
+	ParseCoverageStopped = "stopped"
+	// ParseCoverageGenerated means Canopy intentionally used its generated-file
+	// fast path instead of building a syntax tree.
+	ParseCoverageGenerated = "generated"
+	// ParseCoverageUnknown means an index entry predates parse receipts or came
+	// from a parser that does not expose them.
+	ParseCoverageUnknown = "unknown"
+)
+
+// ParseGap identifies one top-most source region that the syntax tree could
+// not represent cleanly. Lines and columns are one-based; byte offsets are
+// zero-based and use an exclusive end.
+type ParseGap struct {
+	Kind        string `json:"kind"`
+	NodeType    string `json:"node_type,omitempty"`
+	StartByte   uint32 `json:"start_byte"`
+	EndByte     uint32 `json:"end_byte"`
+	StartLine   int    `json:"start_line"`
+	EndLine     int    `json:"end_line"`
+	StartColumn int    `json:"start_column"`
+	EndColumn   int    `json:"end_column"`
+}
+
+// ParseCoverage is the parser-health receipt attached to an indexed file.
+// The receipt reports known gaps and recovery decisions. A clean receipt does
+// not claim that a grammar or tags query covers every source construct.
+type ParseCoverage struct {
+	Status                   string     `json:"status"`
+	StopReason               string     `json:"stop_reason,omitempty"`
+	ErrorNodes               int        `json:"error_nodes,omitempty"`
+	MissingNodes             int        `json:"missing_nodes,omitempty"`
+	RecoveredRegions         int        `json:"recovered_regions,omitempty"`
+	IgnoredEOFMissingRegions int        `json:"ignored_eof_missing_regions,omitempty"`
+	Truncated                bool       `json:"truncated,omitempty"`
+	Gaps                     []ParseGap `json:"gaps,omitempty"`
+}
+
 // FileSummary contains the structural analysis of a single source file.
 type FileSummary struct {
 	Path            string         `json:"path"`
@@ -46,6 +92,7 @@ type FileSummary struct {
 	Symbols         []Symbol       `json:"symbols,omitempty"`
 	References      []Reference    `json:"references,omitempty"`
 	Generated       *GeneratedInfo `json:"generated,omitempty"`
+	ParseCoverage   *ParseCoverage `json:"parse_coverage,omitempty"`
 }
 
 // ParseError records a file that failed to parse.

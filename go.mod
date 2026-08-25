@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/odvcencio/gotreesitter v0.47.1
+	github.com/odvcencio/gotreesitter v0.49.0
 	github.com/rasros/lx v1.3.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.22.0

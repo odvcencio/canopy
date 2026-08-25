@@ -14,6 +14,7 @@ func newIndexGroup() *cobra.Command {
 		newStatsCmd(),
 		newDiffCmd(),
 		newErrorsCmd(),
+		newIndexCoverageCmd(),
 		newValidateCmd(),
 		newExportCmd(),
 		newImportCmd(),

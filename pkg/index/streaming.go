@@ -144,5 +144,10 @@ func cloneFileSummary(summary model.FileSummary) model.FileSummary {
 		g := *summary.Generated
 		cloned.Generated = &g
 	}
+	if summary.ParseCoverage != nil {
+		coverage := *summary.ParseCoverage
+		coverage.Gaps = append([]model.ParseGap(nil), summary.ParseCoverage.Gaps...)
+		cloned.ParseCoverage = &coverage
+	}
 	return cloned
 }

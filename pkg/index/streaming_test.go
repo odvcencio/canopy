@@ -98,7 +98,7 @@ func TestBuildPathIncrementalWithOptions_ObserverReceivesStreamedEvents(t *testi
 
 func TestPartialIndexSnapshotTracksFilesAndErrors(t *testing.T) {
 	base := &model.Index{
-		Version: "0.2.0",
+		Version: "0.3.0",
 		Root:    "/repo",
 		Files: []model.FileSummary{
 			{Path: "a.go", Language: "go"},
@@ -163,12 +163,29 @@ func TestPartialIndexSnapshotTracksFilesAndErrors(t *testing.T) {
 	}
 }
 
+func TestCloneFileSummaryCopiesParseCoverage(t *testing.T) {
+	original := model.FileSummary{
+		Path: "broken.go",
+		ParseCoverage: &model.ParseCoverage{
+			Status: model.ParseCoveragePartial,
+			Gaps:   []model.ParseGap{{Kind: "error", StartLine: 2, EndLine: 3}},
+		},
+	}
+	cloned := cloneFileSummary(original)
+	cloned.ParseCoverage.Status = model.ParseCoverageClean
+	cloned.ParseCoverage.Gaps[0].Kind = "changed"
+
+	if original.ParseCoverage.Status != model.ParseCoveragePartial || original.ParseCoverage.Gaps[0].Kind != "error" {
+		t.Fatalf("clone mutated the original receipt: %+v", original.ParseCoverage)
+	}
+}
+
 func TestSaveOverwritesExistingCache(t *testing.T) {
 	tmpDir := t.TempDir()
 	cachePath := filepath.Join(tmpDir, "nested", "index.json")
 
 	first := &model.Index{
-		Version: "0.2.0",
+		Version: "0.3.0",
 		Root:    "/first",
 		Files: []model.FileSummary{
 			{Path: "a.go", Language: "go"},
@@ -176,7 +193,7 @@ func TestSaveOverwritesExistingCache(t *testing.T) {
 		GeneratedAt: time.Unix(1, 0).UTC(),
 	}
 	second := &model.Index{
-		Version: "0.2.0",
+		Version: "0.3.0",
 		Root:    "/second",
 		Files: []model.FileSummary{
 			{Path: "b.go", Language: "go"},

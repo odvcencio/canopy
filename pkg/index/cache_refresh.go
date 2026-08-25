@@ -37,9 +37,10 @@ func (b *Builder) EnsureFreshCache(
 		ctx = context.Background()
 	}
 
+	schemaChanged := cached.Version != schemaVersion
 	configChanged := !configHashesEqual(cached.ConfigHashes, b.configHashes)
 	var report FreshnessReport
-	if !configChanged {
+	if !schemaChanged && !configChanged {
 		var err error
 		report, err = b.CheckFreshness(ctx, target, cached)
 		if err != nil {
@@ -52,7 +53,7 @@ func (b *Builder) EnsureFreshCache(
 
 	base := cached
 	status := CacheIncrementallyRefreshed
-	if configChanged || report.RootMismatch {
+	if schemaChanged || configChanged || report.RootMismatch {
 		base = nil
 		status = CacheFullyRebuilt
 	}

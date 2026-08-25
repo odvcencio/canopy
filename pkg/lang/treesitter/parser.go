@@ -87,11 +87,12 @@ func (p *Parser) ParseBoundTree(path string, tree *gotreesitter.BoundTree) (mode
 		Path:     path,
 		Language: p.Language(),
 	}
-	if tree == nil || tree.RootNode() == nil {
+	if tree == nil {
 		return summary, nil
 	}
 	src := tree.Source()
-	if len(src) == 0 {
+	if tree.RootNode() == nil {
+		summary.ParseCoverage = buildParseCoverage(nil, src, nil, p.lang)
 		return summary, nil
 	}
 	return p.buildSummaryFromRoot(path, src, tree.RootNode()), nil
@@ -104,6 +105,7 @@ func (p *Parser) ParseWithTree(path string, src []byte) (model.FileSummary, *got
 		Language: p.Language(),
 	}
 	if len(src) == 0 {
+		summary.ParseCoverage = buildParseCoverage(nil, src, nil, p.lang)
 		return summary, gotreesitter.NewTree(nil, src, p.lang), nil
 	}
 
@@ -112,6 +114,8 @@ func (p *Parser) ParseWithTree(path string, src []byte) (model.FileSummary, *got
 		return summary, nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if tree == nil || tree.RootNode() == nil {
+		summary.ParseCoverage = buildParseCoverage(nil, src, nil, p.lang)
+		applyTreeStopReceipt(summary.ParseCoverage, tree)
 		return summary, tree, nil
 	}
 
@@ -125,6 +129,7 @@ func (p *Parser) ParseIncrementalWithTree(path string, src, oldSrc []byte, oldTr
 		Language: p.Language(),
 	}
 	if len(src) == 0 {
+		summary.ParseCoverage = buildParseCoverage(nil, src, nil, p.lang)
 		return summary, gotreesitter.NewTree(nil, src, p.lang), nil
 	}
 
@@ -174,6 +179,8 @@ func (p *Parser) parseIncrementalTree(path string, src []byte, oldTree *gotreesi
 		return summary, nil, fmt.Errorf("incremental parse %s: %w", path, err)
 	}
 	if tree == nil || tree.RootNode() == nil {
+		summary.ParseCoverage = buildParseCoverage(nil, src, nil, p.lang)
+		applyTreeStopReceipt(summary.ParseCoverage, tree)
 		return summary, tree, nil
 	}
 	return p.buildSummaryFromTree(path, src, tree), tree, nil
@@ -186,7 +193,9 @@ func (p *Parser) buildSummaryFromTree(path string, src []byte, tree *gotreesitte
 			Language: p.Language(),
 		}
 	}
-	return p.buildSummaryFromRoot(path, src, tree.RootNode())
+	summary := p.buildSummaryFromRoot(path, src, tree.RootNode())
+	applyTreeStopReceipt(summary.ParseCoverage, tree)
+	return summary
 }
 
 func (p *Parser) buildSummaryFromRoot(path string, src []byte, root *gotreesitter.Node) model.FileSummary {
@@ -198,6 +207,7 @@ func (p *Parser) buildSummaryFromRoot(path string, src []byte, root *gotreesitte
 	summary.Imports = p.extractImports(root, src)
 	summary.Symbols = p.extractSymbols(src, root, tags)
 	summary.References = p.extractReferences(tags)
+	summary.ParseCoverage = buildParseCoverage(root, src, summary.Symbols, p.lang)
 	return summary
 }
 

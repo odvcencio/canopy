@@ -298,6 +298,20 @@ func analyzeTools() []Tool {
 			}.ToMap(),
 		},
 		{
+			Name:        "gts_coverage",
+			Description: "Report parser gaps, stopped parses, recovery receipts, and files with unknown parse coverage",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"include_clean":     {Type: "boolean", Description: "include clean file receipts (default: false)"},
+					"include_generated": {Type: "boolean", Description: "include generated fast-path receipts (default: false)"},
+					"generator":         {Type: "string", Description: "filter to a specific generator or human source"},
+					"limit":             {Type: "integer", Description: "maximum file receipts (default: 100)"},
+				},
+			}.ToMap(),
+		},
+		{
 			Name:        "gts_stats",
 			Description: "Report structural codebase metrics from an index",
 			InputSchema: Schema{
@@ -693,6 +707,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callDiff(args)
 	case "gts_stats":
 		return s.callStats(args)
+	case "gts_coverage":
+		return s.callCoverage(args)
 	case "gts_files":
 		return s.callFiles(args)
 	case "gts_bridge":

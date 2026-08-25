@@ -13,8 +13,9 @@ import (
 	"m31labs.dev/canopy/internal/contextpack"
 	"m31labs.dev/canopy/internal/deps"
 	"m31labs.dev/canopy/internal/files"
-	"m31labs.dev/canopy/pkg/refactor"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/internal/stats"
+	"m31labs.dev/canopy/pkg/refactor"
 	"m31labs.dev/canopy/pkg/structdiff"
 	"m31labs.dev/canopy/pkg/xref"
 )
@@ -30,7 +31,7 @@ func TestServiceToolsIncludesCoreRoadmapTools(t *testing.T) {
 	for _, tool := range tools {
 		seen[tool.Name] = true
 	}
-	for _, name := range []string{"gts_grep", "gts_map", "gts_query", "gts_refs", "gts_context", "gts_scope", "gts_deps", "gts_callgraph", "gts_dead", "gts_chunk", "gts_lint", "gts_refactor", "gts_diff", "gts_stats", "gts_files", "gts_bridge"} {
+	for _, name := range []string{"gts_grep", "gts_map", "gts_query", "gts_refs", "gts_context", "gts_scope", "gts_deps", "gts_callgraph", "gts_dead", "gts_chunk", "gts_lint", "gts_refactor", "gts_diff", "gts_stats", "gts_coverage", "gts_files", "gts_bridge"} {
 		if !seen[name] {
 			t.Fatalf("expected tool %q to be present", name)
 		}
@@ -490,6 +491,18 @@ func Value() {}
 	}
 	if statsReport.FileCount == 0 || statsReport.SymbolCount == 0 {
 		t.Fatalf("expected non-empty stats report, got %+v", statsReport)
+	}
+
+	coverageRaw, err := service.Call("gts_coverage", map[string]any{"include_clean": true})
+	if err != nil {
+		t.Fatalf("gts_coverage call failed: %v", err)
+	}
+	coverageReport, ok := coverageRaw.(indexcoverage.Report)
+	if !ok {
+		t.Fatalf("expected indexcoverage.Report, got %T", coverageRaw)
+	}
+	if coverageReport.TotalFiles == 0 || coverageReport.Summary.Clean == 0 {
+		t.Fatalf("expected clean coverage receipts, got %+v", coverageReport)
 	}
 
 	filesRaw, err := service.Call("gts_files", map[string]any{
