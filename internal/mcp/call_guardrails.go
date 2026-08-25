@@ -5,17 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/boundaries"
 	"m31labs.dev/canopy/pkg/complexity"
+	"m31labs.dev/canopy/pkg/model"
 	"m31labs.dev/canopy/pkg/xref"
 )
 
 type guardrailResult struct {
-	File       string            `json:"file"`
-	Generated  guardrailGen      `json:"generated"`
-	Boundary   guardrailBoundary `json:"boundary"`
-	Complexity guardrailComplex  `json:"complexity"`
-	Warnings   []string          `json:"warnings"`
+	File         string              `json:"file"`
+	Generated    guardrailGen        `json:"generated"`
+	Boundary     guardrailBoundary   `json:"boundary"`
+	Complexity   guardrailComplex    `json:"complexity"`
+	ParserHealth model.ParseCoverage `json:"parser_health"`
+	Warnings     []string            `json:"warnings"`
 }
 
 type guardrailGen struct {
@@ -72,8 +75,10 @@ func (s *Service) callGuardrails(args map[string]any) (any, error) {
 	file := idx.Files[fileIdx]
 
 	result := guardrailResult{
-		File: file.Path,
+		File:         file.Path,
+		ParserHealth: indexcoverage.Normalize(file.ParseCoverage),
 	}
+	appendParserHealthWarnings(&result)
 
 	// 1. Generated check.
 	if file.Generated != nil {
@@ -140,4 +145,30 @@ func (s *Service) callGuardrails(args map[string]any) (any, error) {
 	}
 
 	return result, nil
+}
+
+func appendParserHealthWarnings(result *guardrailResult) {
+	if result == nil {
+		return
+	}
+	coverage := result.ParserHealth
+	switch coverage.Status {
+	case model.ParseCoverageStopped:
+		reason := coverage.StopReason
+		if reason == "" {
+			reason = "unspecified reason"
+		}
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("parser stopped early (%s) - structural results may omit code", reason))
+	case model.ParseCoveragePartial:
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("parser recovered with %d unresolved regions - structural results may be incomplete", len(coverage.Gaps)))
+	case model.ParseCoverageUnknown:
+		result.Warnings = append(result.Warnings,
+			"parser coverage receipt is missing - structural results are unverified")
+	}
+	if coverage.Truncated {
+		result.Warnings = append(result.Warnings,
+			"parser gap details were truncated - inspect the coverage report before editing")
+	}
 }

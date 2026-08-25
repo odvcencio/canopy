@@ -119,7 +119,7 @@ func searchTools() []Tool {
 		},
 		{
 			Name:        "gts_context",
-			Description: "Pack focused context for a file and line, or build a task-conditioned context bundle when task/mode/selectors are set",
+			Description: "Pack focused context, or build a task-conditioned bundle with parser health when task/mode/selectors are set",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"file":              {Type: "string", Description: "legacy mode: file to pack context around"},
@@ -294,6 +294,20 @@ func analyzeTools() []Tool {
 					"pattern":           {OneOf: stringOrArray},
 					"include_generated": {Type: "boolean", Description: "include generated files (default: false)"},
 					"generator":         {Type: "string", Description: "filter to specific generator (e.g. protobuf, mockgen, human)"},
+				},
+			}.ToMap(),
+		},
+		{
+			Name:        "gts_coverage",
+			Description: "Report parser gaps, stopped parses, recovery receipts, and files with unknown parse coverage",
+			InputSchema: Schema{
+				Properties: map[string]Property{
+					"path":              {Type: "string", Description: "index root path"},
+					"cache":             {Type: "string", Description: "index cache path"},
+					"include_clean":     {Type: "boolean", Description: "include clean file receipts (default: false)"},
+					"include_generated": {Type: "boolean", Description: "include generated fast-path receipts (default: false)"},
+					"generator":         {Type: "string", Description: "filter to a specific generator or human source"},
+					"limit":             {Type: "integer", Description: "maximum file receipts (default: 100)"},
 				},
 			}.ToMap(),
 		},
@@ -493,7 +507,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_guardrails",
-			Description: "Return structured advisory for a file: generated status, boundary module, complexity, fan-in warnings",
+			Description: "Return structured advisory for a file: parser health, generated status, boundary module, complexity, fan-in warnings",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"file":  {Type: "string", Description: "file path to analyze (required)"},
@@ -505,7 +519,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_report",
-			Description: "Executive summary report aggregating all analyses: complexity, boundaries, import cycles, capabilities, dead code, hotspots",
+			Description: "Confidence-aware executive report: parser health, complexity, boundaries, import cycles, capabilities, dead code, hotspots",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"path":              {Type: "string", Description: "index root path"},
@@ -517,7 +531,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_review",
-			Description: "Aggregate review report for changed files: complexity, boundary violations, capabilities, blast radius",
+			Description: "Confidence-aware review for changed files: parser health, complexity, boundaries, capabilities, blast radius",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"base":              {Type: "string", Description: "git ref to diff against (required, e.g. main, HEAD~1)"},
@@ -693,6 +707,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 		return s.callDiff(args)
 	case "gts_stats":
 		return s.callStats(args)
+	case "gts_coverage":
+		return s.callCoverage(args)
 	case "gts_files":
 		return s.callFiles(args)
 	case "gts_bridge":

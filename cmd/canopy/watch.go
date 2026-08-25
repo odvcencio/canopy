@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -284,6 +285,23 @@ func parseErrorsEqual(left, right []model.ParseError) bool {
 	}
 	for i := range left {
 		if left[i].Path != right[i].Path || left[i].Error != right[i].Error {
+			return false
+		}
+	}
+	return true
+}
+
+func parseCoverageEqual(left, right []model.FileSummary) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	rightByPath := make(map[string]*model.ParseCoverage, len(right))
+	for i := range right {
+		rightByPath[right[i].Path] = right[i].ParseCoverage
+	}
+	for i := range left {
+		rightCoverage, ok := rightByPath[left[i].Path]
+		if !ok || !reflect.DeepEqual(left[i].ParseCoverage, rightCoverage) {
 			return false
 		}
 	}

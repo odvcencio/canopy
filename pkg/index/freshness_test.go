@@ -176,6 +176,38 @@ func TestEnsureFreshCacheRebuildsAfterConfigChange(t *testing.T) {
 	}
 }
 
+func TestEnsureFreshCacheRebuildsAfterSchemaChange(t *testing.T) {
+	root := t.TempDir()
+	cachePath := filepath.Join(root, ".canopy", "index.json")
+	writeFreshnessSource(t, root, "main.go", "package sample\n\nfunc Main() {}\n")
+	builder, err := NewBuilderWithWorkspaceIgnores(root)
+	if err != nil {
+		t.Fatalf("NewBuilderWithWorkspaceIgnores returned error: %v", err)
+	}
+	cached, err := builder.BuildPath(root)
+	if err != nil {
+		t.Fatalf("BuildPath returned error: %v", err)
+	}
+	cached.Version = "0.2.0"
+	for i := range cached.Files {
+		cached.Files[i].ParseCoverage = nil
+	}
+	if err := Save(cachePath, cached); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	refreshed, status, err := builder.EnsureFreshCache(context.Background(), root, cachePath, cached)
+	if err != nil {
+		t.Fatalf("EnsureFreshCache returned error: %v", err)
+	}
+	if status != CacheFullyRebuilt {
+		t.Fatalf("status = %q, want %q", status, CacheFullyRebuilt)
+	}
+	if refreshed.Version != schemaVersion || len(refreshed.Files) != 1 || refreshed.Files[0].ParseCoverage == nil {
+		t.Fatalf("schema rebuild did not restore parse receipts: %+v", refreshed)
+	}
+}
+
 func writeFreshnessSource(t *testing.T, root, name, source string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0o644); err != nil {

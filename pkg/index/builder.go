@@ -23,7 +23,7 @@ import (
 	"m31labs.dev/canopy/pkg/model"
 )
 
-const schemaVersion = "0.2.0"
+const schemaVersion = "0.3.0"
 
 type Builder struct {
 	parsers      map[string]lang.Parser
@@ -498,6 +498,10 @@ func (b *Builder) processWalkedFile(file grammars.ParsedFile, root string, files
 		)
 		if genInfo != nil {
 			summary = generated.FastExtractSymbols(relPath, file.Source, parser.Language())
+			summary.ParseCoverage = &model.ParseCoverage{
+				Status:     model.ParseCoverageGenerated,
+				StopReason: "generated_file_fast_path",
+			}
 		} else {
 			summary, parseErr = parser.Parse(file.Path, file.Source)
 		}
@@ -769,7 +773,7 @@ func (b *Builder) buildSingleFileWithOptions(ctx context.Context, target string,
 
 func previousFilesByPath(previous *model.Index, root string) map[string]model.FileSummary {
 	reused := map[string]model.FileSummary{}
-	if previous == nil {
+	if previous == nil || previous.Version != schemaVersion {
 		return reused
 	}
 

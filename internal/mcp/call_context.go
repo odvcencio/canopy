@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"m31labs.dev/canopy/internal/contextpack"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/contextbundle"
 )
 
@@ -11,9 +12,10 @@ import (
 // Result.Content is JSON-tagged "-" (it is measured and hashed as raw
 // bytes, not re-encoded), so the MCP transport needs its own envelope.
 type bundleResponse struct {
-	Content  string                 `json:"content"`
-	Receipt  contextbundle.Receipt  `json:"receipt"`
-	Manifest contextbundle.Manifest `json:"manifest"`
+	Content      string                 `json:"content"`
+	Receipt      contextbundle.Receipt  `json:"receipt"`
+	Manifest     contextbundle.Manifest `json:"manifest"`
+	ParserHealth indexcoverage.Health   `json:"parser_health"`
 }
 
 func (s *Service) callContext(args map[string]any) (any, error) {
@@ -45,10 +47,15 @@ func (s *Service) callContext(args map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		parserHealth, err := indexcoverage.BuildHealthForPaths(idx, manifestPaths(result.Manifest), 5)
+		if err != nil {
+			return nil, err
+		}
 		return bundleResponse{
-			Content:  string(result.Content),
-			Receipt:  result.Receipt,
-			Manifest: result.Manifest,
+			Content:      string(result.Content),
+			Receipt:      result.Receipt,
+			Manifest:     result.Manifest,
+			ParserHealth: parserHealth,
 		}, nil
 	}
 
@@ -74,6 +81,14 @@ func (s *Service) callContext(args map[string]any) (any, error) {
 		return nil, err
 	}
 	return report, nil
+}
+
+func manifestPaths(manifest contextbundle.Manifest) []string {
+	paths := make([]string, 0, len(manifest.Items))
+	for _, item := range manifest.Items {
+		paths = append(paths, item.Path)
+	}
+	return paths
 }
 
 func parseSelectorsArg(args map[string]any, key string) []contextbundle.Selector {
