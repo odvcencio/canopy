@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"m31labs.dev/canopy/internal/deps"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/boundaries"
 	"m31labs.dev/canopy/pkg/capa"
 	"m31labs.dev/canopy/pkg/complexity"
@@ -10,10 +11,11 @@ import (
 )
 
 type mcpReportResult struct {
-	Files        int            `json:"files"`
-	Languages    map[string]int `json:"languages"`
-	TotalSymbols int            `json:"total_symbols"`
-	GeneratedPct int            `json:"generated_pct"`
+	Files        int                  `json:"files"`
+	Languages    map[string]int       `json:"languages"`
+	TotalSymbols int                  `json:"total_symbols"`
+	GeneratedPct int                  `json:"generated_pct"`
+	ParserHealth indexcoverage.Health `json:"parser_health"`
 
 	FunctionCount int `json:"function_count"`
 	CyclomaticMax int `json:"cyclomatic_max"`
@@ -66,6 +68,10 @@ func (s *Service) callReport(args map[string]any) (any, error) {
 	genFiles := idx.GeneratedFileCount()
 	if totalFiles > 0 {
 		rpt.GeneratedPct = genFiles * 100 / totalFiles
+	}
+	parserHealth, parserHealthErr := indexcoverage.BuildHealth(idx, 5)
+	if parserHealthErr == nil {
+		rpt.ParserHealth = parserHealth
 	}
 
 	// Complexity

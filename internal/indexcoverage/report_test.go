@@ -34,7 +34,7 @@ func TestBuildAggregatesReceiptsAndDefaultsToUntrustedFiles(t *testing.T) {
 	if report.Summary.Clean != 1 || report.Summary.Partial != 1 || report.Summary.Unknown != 1 || report.Summary.Generated != 1 {
 		t.Fatalf("unexpected summary: %+v", report.Summary)
 	}
-	if report.Summary.Gaps != 1 || report.Summary.Recovered != 2 || report.Summary.ParseErrors != 1 {
+	if report.Summary.Gaps != 1 || report.Summary.Recovered != 2 || report.Summary.ParseErrors != 1 || report.Summary.Untrusted != 3 {
 		t.Fatalf("unexpected receipt totals: %+v", report.Summary)
 	}
 	if len(report.Files) != 2 || report.Files[0].Path != "broken.go" || report.Files[1].Path != "legacy.go" {
@@ -81,5 +81,48 @@ func TestTruncatedReceiptFailsStrictMode(t *testing.T) {
 	}
 	if !report.StrictFailure() {
 		t.Fatalf("truncated receipt passed strict mode: %+v", report)
+	}
+}
+
+func TestBuildHealthRanksIssuesAndBoundsDetails(t *testing.T) {
+	idx := &model.Index{Files: []model.FileSummary{
+		{Path: "clean.go", ParseCoverage: &model.ParseCoverage{Status: model.ParseCoverageClean}},
+		{Path: "partial.go", ParseCoverage: &model.ParseCoverage{Status: model.ParseCoveragePartial}},
+		{Path: "stopped.go", ParseCoverage: &model.ParseCoverage{Status: model.ParseCoverageStopped}},
+	}}
+	health, err := BuildHealth(idx, 1)
+	if err != nil {
+		t.Fatalf("BuildHealth returned error: %v", err)
+	}
+	if health.Status != model.ParseCoverageStopped {
+		t.Fatalf("status = %q, want %q", health.Status, model.ParseCoverageStopped)
+	}
+	if health.TotalFiles != 3 || health.Summary.Untrusted != 2 || len(health.IssueFiles) != 1 || health.IssueFiles[0].Path != "stopped.go" {
+		t.Fatalf("unexpected health receipt: %+v", health)
+	}
+	if !health.DetailsTruncated {
+		t.Fatal("expected bounded issue details to report truncation")
+	}
+}
+
+func TestReportStatusUsesActionableSeverityOrder(t *testing.T) {
+	tests := []struct {
+		name   string
+		report Report
+		want   string
+	}{
+		{name: "empty", report: Report{}, want: model.ParseCoverageUnknown},
+		{name: "generated", report: Report{TotalFiles: 1, Summary: Summary{Generated: 1}}, want: model.ParseCoverageGenerated},
+		{name: "clean", report: Report{TotalFiles: 1, Summary: Summary{Clean: 1}}, want: model.ParseCoverageClean},
+		{name: "unknown", report: Report{TotalFiles: 2, Summary: Summary{Clean: 1, Unknown: 1}}, want: model.ParseCoverageUnknown},
+		{name: "partial", report: Report{TotalFiles: 2, Summary: Summary{Unknown: 1, Partial: 1}}, want: model.ParseCoveragePartial},
+		{name: "stopped", report: Report{TotalFiles: 2, Summary: Summary{Partial: 1, ParseErrors: 1}}, want: model.ParseCoverageStopped},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.report.Status(); got != test.want {
+				t.Fatalf("Status() = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

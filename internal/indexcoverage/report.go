@@ -28,6 +28,7 @@ type Summary struct {
 	Recovered   int `json:"recovered_regions"`
 	IgnoredEOF  int `json:"ignored_eof_missing_regions"`
 	Truncated   int `json:"truncated_files"`
+	Untrusted   int `json:"untrusted_files"`
 }
 
 type File struct {
@@ -46,6 +47,15 @@ type Report struct {
 	DetailsTruncated bool               `json:"details_truncated,omitempty"`
 }
 
+// Health is a compact parser-confidence receipt for composite analyses.
+type Health struct {
+	Status           string  `json:"status"`
+	TotalFiles       int     `json:"total_files"`
+	Summary          Summary `json:"summary"`
+	IssueFiles       []File  `json:"issue_files,omitempty"`
+	DetailsTruncated bool    `json:"details_truncated,omitempty"`
+}
+
 func Build(idx *model.Index, opts Options) (Report, error) {
 	if idx == nil {
 		return Report{}, fmt.Errorf("index is nil")
@@ -60,11 +70,12 @@ func Build(idx *model.Index, opts Options) (Report, error) {
 		Errors:     append([]model.ParseError(nil), idx.Errors...),
 	}
 	report.Summary.ParseErrors = len(report.Errors)
+	report.Summary.Untrusted = len(report.Errors)
 	sort.Slice(report.Errors, func(i, j int) bool { return report.Errors[i].Path < report.Errors[j].Path })
 
 	details := make([]File, 0)
 	for _, file := range idx.Files {
-		coverage := normalizedCoverage(file.ParseCoverage)
+		coverage := Normalize(file.ParseCoverage)
 		accumulate(&report.Summary, coverage)
 		if !includeDetail(coverage.Status, opts) {
 			continue
@@ -93,6 +104,40 @@ func Build(idx *model.Index, opts Options) (Report, error) {
 	return report, nil
 }
 
+// BuildHealth returns a compact receipt with the highest-severity status and
+// a bounded list of files that need attention.
+func BuildHealth(idx *model.Index, maxFiles int) (Health, error) {
+	report, err := Build(idx, Options{MaxFiles: maxFiles})
+	if err != nil {
+		return Health{}, err
+	}
+	return Health{
+		Status:           report.Status(),
+		TotalFiles:       report.TotalFiles,
+		Summary:          report.Summary,
+		IssueFiles:       report.Files,
+		DetailsTruncated: report.DetailsTruncated,
+	}, nil
+}
+
+// Status returns the highest-severity parser-health status in the report.
+func (r Report) Status() string {
+	switch {
+	case r.Summary.ParseErrors > 0 || r.Summary.Stopped > 0:
+		return model.ParseCoverageStopped
+	case r.Summary.Partial > 0 || r.Summary.Truncated > 0:
+		return model.ParseCoveragePartial
+	case r.Summary.Unknown > 0 || r.TotalFiles == 0:
+		return model.ParseCoverageUnknown
+	case r.Summary.Clean > 0:
+		return model.ParseCoverageClean
+	case r.Summary.Generated > 0:
+		return model.ParseCoverageGenerated
+	default:
+		return model.ParseCoverageUnknown
+	}
+}
+
 // StrictFailure reports whether the index contains an actionable parse gap,
 // a stopped parse, a missing receipt, or a complete parse failure.
 func (r Report) StrictFailure() bool {
@@ -103,7 +148,8 @@ func (r Report) StrictFailure() bool {
 		r.Summary.Truncated > 0
 }
 
-func normalizedCoverage(input *model.ParseCoverage) model.ParseCoverage {
+// Normalize returns a safe copy of a file receipt with a known status.
+func Normalize(input *model.ParseCoverage) model.ParseCoverage {
 	if input == nil {
 		return model.ParseCoverage{Status: model.ParseCoverageUnknown}
 	}
@@ -142,6 +188,12 @@ func accumulate(summary *Summary, coverage model.ParseCoverage) {
 	summary.IgnoredEOF += coverage.IgnoredEOFMissingRegions
 	if coverage.Truncated {
 		summary.Truncated++
+	}
+	if coverage.Status == model.ParseCoveragePartial ||
+		coverage.Status == model.ParseCoverageStopped ||
+		coverage.Status == model.ParseCoverageUnknown ||
+		coverage.Truncated {
+		summary.Untrusted++
 	}
 }
 

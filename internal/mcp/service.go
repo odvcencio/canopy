@@ -507,7 +507,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_guardrails",
-			Description: "Return structured advisory for a file: generated status, boundary module, complexity, fan-in warnings",
+			Description: "Return structured advisory for a file: parser health, generated status, boundary module, complexity, fan-in warnings",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"file":  {Type: "string", Description: "file path to analyze (required)"},
@@ -519,7 +519,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_report",
-			Description: "Executive summary report aggregating all analyses: complexity, boundaries, import cycles, capabilities, dead code, hotspots",
+			Description: "Confidence-aware executive report: parser health, complexity, boundaries, import cycles, capabilities, dead code, hotspots",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"path":              {Type: "string", Description: "index root path"},
@@ -531,7 +531,7 @@ func analyzeTools() []Tool {
 		},
 		{
 			Name:        "gts_review",
-			Description: "Aggregate review report for changed files: complexity, boundary violations, capabilities, blast radius",
+			Description: "Confidence-aware review for changed files: parser health, complexity, boundaries, capabilities, blast radius",
 			InputSchema: Schema{
 				Properties: map[string]Property{
 					"base":              {Type: "string", Description: "git ref to diff against (required, e.g. main, HEAD~1)"},

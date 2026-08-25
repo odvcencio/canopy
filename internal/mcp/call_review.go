@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"m31labs.dev/canopy/internal/deps"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/boundaries"
 	"m31labs.dev/canopy/pkg/capa"
 	"m31labs.dev/canopy/pkg/complexity"
@@ -23,13 +24,14 @@ type reviewComplexityDelta struct {
 }
 
 type reviewReport struct {
-	Base            string                 `json:"base"`
-	ChangedFiles    int                    `json:"changed_files"`
-	Files           []string               `json:"files"`
+	Base            string                  `json:"base"`
+	ChangedFiles    int                     `json:"changed_files"`
+	Files           []string                `json:"files"`
 	ComplexityDelta []reviewComplexityDelta `json:"complexity_delta,omitempty"`
 	BoundaryIssues  []boundaries.Violation  `json:"boundary_issues,omitempty"`
 	NewCapabilities []reviewCapaMatch       `json:"new_capabilities,omitempty"`
 	BlastRadius     int                     `json:"blast_radius"`
+	ParserHealth    *indexcoverage.Health   `json:"parser_health,omitempty"`
 }
 
 type reviewCapaMatch struct {
@@ -66,12 +68,28 @@ func (s *Service) callReview(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	coverageIdx := *idx
+	coverageIdx.Files = nil
+	coverageIdx.Errors = nil
+	for _, file := range idx.Files {
+		if changedSet[file.Path] {
+			coverageIdx.Files = append(coverageIdx.Files, file)
+		}
+	}
+	for _, parseErr := range idx.Errors {
+		if changedSet[parseErr.Path] {
+			coverageIdx.Errors = append(coverageIdx.Errors, parseErr)
+		}
+	}
 	idx = applyGeneratedFilter(idx, boolArg(args, "include_generated", false), stringArg(args, "generator"))
 
 	report := reviewReport{
 		Base:         base,
 		ChangedFiles: len(changed),
 		Files:        changed,
+	}
+	if parserHealth, parserHealthErr := indexcoverage.BuildHealth(&coverageIdx, 5); parserHealthErr == nil {
+		report.ParserHealth = &parserHealth
 	}
 
 	// 1. Complexity for changed files.
@@ -126,6 +144,7 @@ func (s *Service) callReview(args map[string]any) (any, error) {
 	// Build sub-index with only changed files.
 	changedIdx := *idx
 	changedIdx.Files = nil
+	changedIdx.Errors = nil
 	for _, f := range idx.Files {
 		if changedSet[f.Path] {
 			changedIdx.Files = append(changedIdx.Files, f)

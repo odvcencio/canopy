@@ -115,8 +115,8 @@ Call graph roots can be narrowed with `--file` or `path/to/file.go:Name` when mu
 | `canopy analyze licenses` | Dependency license detection with SPDX matching and deny rules |
 | `canopy analyze similarity` | Find similar functions between codebases |
 | `canopy analyze duplication` | Detect code duplication |
-| `canopy analyze report` | Executive summary: complexity, architecture, security, dead code, hotspots. `--by-team` for CODEOWNERS breakdown |
-| `canopy analyze review` | Aggregated PR review: complexity delta, boundary violations, new capabilities, blast radius |
+| `canopy analyze report` | Confidence-aware summary: parser health, complexity, architecture, security, dead code, hotspots. `--by-team` for CODEOWNERS breakdown |
+| `canopy analyze review` | Confidence-aware PR review: parser health, complexity delta, boundary violations, new capabilities, blast radius |
 | `canopy analyze trends` | Track quality metrics over time (`record` / `show`) |
 
 ### Transform — Code transformations and output generation

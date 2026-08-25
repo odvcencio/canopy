@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"m31labs.dev/canopy/internal/deps"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/boundaries"
 	"m31labs.dev/canopy/pkg/capa"
 	"m31labs.dev/canopy/pkg/complexity"
@@ -27,10 +28,11 @@ import (
 // Report is the top-level executive summary structure produced by `gts analyze report`.
 type Report struct {
 	// Codebase overview
-	Files        int            `json:"files"`
-	Languages    map[string]int `json:"languages"`
-	TotalSymbols int            `json:"total_symbols"`
-	GeneratedPct int            `json:"generated_pct"`
+	Files        int                  `json:"files"`
+	Languages    map[string]int       `json:"languages"`
+	TotalSymbols int                  `json:"total_symbols"`
+	GeneratedPct int                  `json:"generated_pct"`
+	ParserHealth indexcoverage.Health `json:"parser_health"`
 
 	// Complexity
 	FunctionCount int `json:"function_count"`
@@ -39,11 +41,11 @@ type Report struct {
 	CognitiveMax  int `json:"cognitive_max"`
 
 	// Architecture
-	BoundaryViolations   int      `json:"boundary_violations"`
-	ImportCycles         int      `json:"import_cycles"`
-	AvgInstability       float64  `json:"avg_instability,omitempty"`
+	BoundaryViolations    int      `json:"boundary_violations"`
+	ImportCycles          int      `json:"import_cycles"`
+	AvgInstability        float64  `json:"avg_instability,omitempty"`
 	MaxDistance           float64  `json:"max_distance,omitempty"`
-	MaxLCOM              int      `json:"max_lcom,omitempty"`
+	MaxLCOM               int      `json:"max_lcom,omitempty"`
 	WorstCouplingPackages []string `json:"worst_coupling_packages,omitempty"`
 
 	// Type Health
@@ -66,8 +68,8 @@ type Report struct {
 	TopRiskFunctions []string `json:"top_risk_functions,omitempty"`
 
 	// Structural Smells
-	SmellsTotal  int `json:"smells_total"`
-	SmellErrors  int `json:"smell_errors"`
+	SmellsTotal   int `json:"smells_total"`
+	SmellErrors   int `json:"smell_errors"`
 	SmellWarnings int `json:"smell_warnings"`
 
 	// Team breakdown (only when --by-team is set)
@@ -84,13 +86,13 @@ type HotspotEntry struct {
 
 // TeamMetrics holds per-team breakdown of report metrics.
 type TeamMetrics struct {
-	Files            int `json:"files"`
-	Functions        int `json:"functions"`
-	CyclomaticMax    int `json:"cyclomatic_max"`
-	CognitiveMax     int `json:"cognitive_max"`
-	DeadFunctions    int `json:"dead_functions"`
+	Files              int `json:"files"`
+	Functions          int `json:"functions"`
+	CyclomaticMax      int `json:"cyclomatic_max"`
+	CognitiveMax       int `json:"cognitive_max"`
+	DeadFunctions      int `json:"dead_functions"`
 	BoundaryViolations int `json:"boundary_violations"`
-	Capabilities     int `json:"capabilities"`
+	Capabilities       int `json:"capabilities"`
 }
 
 // ownerRule maps a path pattern to a team name, from CODEOWNERS or .canopyowners.
@@ -154,6 +156,10 @@ Examples:
 			genFiles := idx.GeneratedFileCount()
 			if totalFiles > 0 {
 				rpt.GeneratedPct = genFiles * 100 / totalFiles
+			}
+			parserHealth, parserHealthErr := indexcoverage.BuildHealth(idx, 5)
+			if parserHealthErr == nil {
+				rpt.ParserHealth = parserHealth
 			}
 
 			// --- Complexity ---
@@ -387,8 +393,8 @@ Examples:
 			case "json":
 				if delta != nil {
 					return emitJSON(struct {
-						Current  Report  `json:"current"`
-						Baseline Report  `json:"baseline"`
+						Current  Report `json:"current"`
+						Baseline Report `json:"baseline"`
 					}{
 						Current:  rpt,
 						Baseline: *delta,
@@ -436,6 +442,30 @@ func printMarkdownReport(rpt Report, delta *Report, target string) {
 	if delta != nil {
 		printDelta("files", rpt.Files, delta.Files)
 		printDelta("functions", rpt.FunctionCount, delta.FunctionCount)
+	}
+	fmt.Println()
+
+	// Parser Health
+	fmt.Println("## Parser Health")
+	fmt.Printf("- Status: %s\n", rpt.ParserHealth.Status)
+	fmt.Printf("- %d clean, %d partial, %d stopped, %d unknown, %d generated\n",
+		rpt.ParserHealth.Summary.Clean,
+		rpt.ParserHealth.Summary.Partial,
+		rpt.ParserHealth.Summary.Stopped,
+		rpt.ParserHealth.Summary.Unknown,
+		rpt.ParserHealth.Summary.Generated)
+	fmt.Printf("- %d gaps, %d parse errors\n", rpt.ParserHealth.Summary.Gaps, rpt.ParserHealth.Summary.ParseErrors)
+	fmt.Printf("- %d untrusted files\n", rpt.ParserHealth.Summary.Untrusted)
+	if len(rpt.ParserHealth.IssueFiles) > 0 {
+		fmt.Println("- Files that need attention:")
+		for _, file := range rpt.ParserHealth.IssueFiles {
+			fmt.Printf("  - %s (%s)\n", file.Path, file.Coverage.Status)
+		}
+	}
+	if delta != nil {
+		currentIssues := parserHealthIssueCount(rpt.ParserHealth)
+		baselineIssues := parserHealthIssueCount(delta.ParserHealth)
+		printDelta("parser issue files", currentIssues, baselineIssues)
 	}
 	fmt.Println()
 
@@ -608,6 +638,10 @@ func buildCompareReport(ref, target string, cmd *cobra.Command) (*Report, error)
 	if totalFiles > 0 {
 		rpt.GeneratedPct = genFiles * 100 / totalFiles
 	}
+	parserHealth, parserHealthErr := indexcoverage.BuildHealth(baseIdx, 5)
+	if parserHealthErr == nil {
+		rpt.ParserHealth = parserHealth
+	}
 
 	// Complexity
 	complexityReport, complexityErr := complexity.Analyze(baseAnalysisIdx, baseAnalysisIdx.Root, complexity.Options{})
@@ -674,6 +708,10 @@ func buildCompareReport(ref, target string, cmd *cobra.Command) (*Report, error)
 	}
 
 	return &rpt, nil
+}
+
+func parserHealthIssueCount(health indexcoverage.Health) int {
+	return health.Summary.Untrusted
 }
 
 // newGitCmd creates an exec.Cmd for git operations in the given directory.

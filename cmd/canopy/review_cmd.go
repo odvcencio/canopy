@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"m31labs.dev/canopy/internal/deps"
+	"m31labs.dev/canopy/internal/indexcoverage"
 	"m31labs.dev/canopy/pkg/boundaries"
 	"m31labs.dev/canopy/pkg/capa"
 	"m31labs.dev/canopy/pkg/complexity"
@@ -41,6 +42,7 @@ type reviewReport struct {
 	BoundaryIssues  []boundaries.Violation  `json:"boundary_issues,omitempty"`
 	NewCapabilities []reviewCapaMatch       `json:"new_capabilities,omitempty"`
 	BlastRadius     int                     `json:"blast_radius"`
+	ParserHealth    *indexcoverage.Health   `json:"parser_health,omitempty"`
 }
 
 func newReviewCmd() *cobra.Command {
@@ -91,6 +93,19 @@ func newReviewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			coverageIdx := *idx
+			coverageIdx.Files = nil
+			coverageIdx.Errors = nil
+			for _, file := range idx.Files {
+				if changedSet[file.Path] {
+					coverageIdx.Files = append(coverageIdx.Files, file)
+				}
+			}
+			for _, parseErr := range idx.Errors {
+				if changedSet[parseErr.Path] {
+					coverageIdx.Errors = append(coverageIdx.Errors, parseErr)
+				}
+			}
 			idx = applyGeneratedFilter(cmd, idx)
 
 			report := reviewReport{
@@ -101,6 +116,9 @@ func newReviewCmd() *cobra.Command {
 			}
 			if changedScoped {
 				report.IndexScope = "changed"
+			}
+			if parserHealth, parserHealthErr := indexcoverage.BuildHealth(&coverageIdx, 5); parserHealthErr == nil {
+				report.ParserHealth = &parserHealth
 			}
 			var (
 				reviewGraph      xref.Graph
@@ -165,6 +183,7 @@ func newReviewCmd() *cobra.Command {
 			rules := capa.BuiltinRules()
 			changedIdx := *idx
 			changedIdx.Files = nil
+			changedIdx.Errors = nil
 			for _, f := range idx.Files {
 				if changedSet[f.Path] {
 					changedIdx.Files = append(changedIdx.Files, f)
@@ -204,7 +223,17 @@ func newReviewCmd() *cobra.Command {
 			}
 
 			// Text output.
-			fmt.Printf("review: base=%s changed_files=%d index_scope=%s blast_radius=%d\n", report.Base, report.ChangedFiles, report.IndexScope, report.BlastRadius)
+			fmt.Printf("review: base=%s changed_files=%d index_scope=%s blast_radius=%d", report.Base, report.ChangedFiles, report.IndexScope, report.BlastRadius)
+			if report.ParserHealth != nil {
+				fmt.Printf(" parser_health=%s", report.ParserHealth.Status)
+			}
+			fmt.Println()
+			if report.ParserHealth != nil && len(report.ParserHealth.IssueFiles) > 0 {
+				fmt.Println("\nparser issues in changed files:")
+				for _, file := range report.ParserHealth.IssueFiles {
+					fmt.Printf("  %s status=%s gaps=%d\n", file.Path, file.Coverage.Status, len(file.Coverage.Gaps))
+				}
+			}
 			if len(report.ComplexityDelta) > 0 {
 				fmt.Println("\ncomplexity in changed files:")
 				for _, cd := range report.ComplexityDelta {
