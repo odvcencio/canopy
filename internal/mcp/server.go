@@ -22,6 +22,7 @@ type Server struct {
 	writer  io.Writer
 	log     io.Writer
 	outMu   sync.Mutex
+	framed  bool
 }
 
 func RunStdio(service *Service, in io.Reader, out io.Writer, log io.Writer) error {
@@ -76,7 +77,7 @@ type toolContent struct {
 
 func (s *Server) Run() error {
 	for {
-		payload, err := readFramedMessage(s.reader)
+		payload, err := s.readMessage()
 		if err != nil {
 			if err == io.EOF {
 				return nil
@@ -135,7 +136,7 @@ func (s *Server) handleRequest(request rpcRequest) (any, *rpcError) {
 		}, nil
 	case "initialized":
 		return map[string]any{}, nil
-	case "shutdown":
+	case "shutdown", "ping":
 		return map[string]any{}, nil
 	case "tools/list":
 		return toolsListResult{Tools: s.service.Tools()}, nil
@@ -226,19 +227,48 @@ func (s *Server) sendResponse(response rpcResponse) error {
 	if err != nil {
 		return err
 	}
-	return s.writeFramed(payload)
+	return s.writeMessage(payload)
 }
 
-func (s *Server) writeFramed(payload []byte) error {
+func (s *Server) writeMessage(payload []byte) error {
 	s.outMu.Lock()
 	defer s.outMu.Unlock()
 
+	if !s.framed {
+		_, err := s.writer.Write(append(payload, '\n'))
+		return err
+	}
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(payload))
 	if _, err := io.WriteString(s.writer, header); err != nil {
 		return err
 	}
 	_, err := s.writer.Write(payload)
 	return err
+}
+
+func (s *Server) readMessage() ([]byte, error) {
+	for {
+		prefix, err := s.reader.Peek(1)
+		if err != nil {
+			return nil, err
+		}
+		switch prefix[0] {
+		case ' ', '\t', '\r', '\n':
+			_, _ = s.reader.ReadByte()
+			continue
+		case 'C', 'c':
+			// Keep the original Content-Length transport for existing clients.
+			s.framed = true
+			return readFramedMessage(s.reader)
+		default:
+			s.framed = false
+			payload, err := s.reader.ReadBytes('\n')
+			if err == io.EOF && len(payload) > 0 {
+				err = nil
+			}
+			return payload, err
+		}
+	}
 }
 
 func readFramedMessage(reader *bufio.Reader) ([]byte, error) {
