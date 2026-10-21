@@ -78,6 +78,7 @@ Call graph roots can be narrowed with `--file` or `path/to/file.go:Name` when mu
 | `canopy search scope` | Resolve symbols in scope at file + line |
 | `canopy search context` | Pack focused context for agent token budgets. `--concept` for concept-aware packing |
 | `canopy search symbols` | Search symbols by pattern |
+| `canopy search outline <file>` | Live symbol outline without an index: bounded pages, line ranges, owners, source identity, and explicit coverage diagnostics. Use `--json`, `--limit`, and `--cursor` |
 | `canopy search imports` | Analyze import patterns |
 
 ### Graph — Call graph, dependency, and coverage analysis
