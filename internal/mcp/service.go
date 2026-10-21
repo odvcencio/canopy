@@ -61,6 +61,15 @@ func searchTools() []Tool {
 	}
 	return []Tool{
 		{
+			Name:        "gts_outline",
+			Description: "Read a bounded live single-file symbol outline without an index. Rows are preorder with depth and global parent_index; line ranges are inclusive. Check definition_kinds, parse errors, query truncation, and omissions before treating absent symbols as absent. Follow next_cursor unchanged; source changes invalidate cursors. Read only the desired source ranges afterward.",
+			InputSchema: Schema{Properties: map[string]Property{
+				"file":   {Type: "string", Description: "Literal file path inside the server workspace"},
+				"limit":  {Type: "integer", Description: "Symbols per page, maximum 100 (default 40)"},
+				"cursor": {Type: "string", Description: "Returned next_cursor, unchanged"},
+			}, Required: []string{"file"}}.ToMap(),
+		},
+		{
 			Name:        "gts_grep",
 			Description: "Run structural selector matches across indexed symbols",
 			InputSchema: Schema{
@@ -667,6 +676,8 @@ func (s *Service) Call(name string, args map[string]any) (any, error) {
 	switch strings.TrimSpace(name) {
 	case "gts_grep":
 		return s.callGrep(args)
+	case "gts_outline":
+		return s.callOutline(args)
 	case "gts_map":
 		return s.callMap(args)
 	case "gts_query":
